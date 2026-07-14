@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Chat Bot"
+title = "GramMiner"
 version = "1.0.0"
 id = "artifacts/chatbot"
 router = "path"
