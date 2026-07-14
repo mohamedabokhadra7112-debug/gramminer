@@ -2,5 +2,13 @@
   "buildCommand": "pnpm --filter @workspace/chatbot run build",
   "outputDirectory": "artifacts/chatbot/dist/public",
   "installCommand": "pnpm install",
-  "framework": null
+  "framework": null,
+  "functions": {
+    "artifacts/chatbot/api/*.js": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/artifacts/chatbot/api/$1" }
+  ]
 }
