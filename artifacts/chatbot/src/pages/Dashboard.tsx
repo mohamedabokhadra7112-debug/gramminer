@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
-import CandlestickBg from '@/components/CandlestickBg';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import gramCoinImg from '@/assets/gram-coin.png';
+import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, addClickEarning, claimEarnings } = useWallet();
@@ -62,7 +62,17 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-full flex flex-col relative w-full">
-      <CandlestickBg />
+      {/* Page background = the uploaded mining artwork, cover + centered,
+          with a dark overlay so text stays readable on top of it. */}
+      <div
+        className="absolute inset-0 z-0"
+        style={{
+          backgroundImage: `url(${mineBgImg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      />
+      <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
 
       {/* Top Bar */}
       <div className="flex items-center justify-between px-4 py-3 relative z-10">
@@ -147,13 +157,13 @@ export default function Dashboard() {
           onClick={handleCoinClick}
           onTouchStart={handleCoinClick}
         >
-          <div className="w-full h-full rounded-full flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
-            <img
-              src={gramCoinImg}
-              alt="GMR"
-              className="absolute inset-0 w-full h-full object-cover scale-110"
-            />
+          <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
+            <div
+              className="text-[clamp(2.2rem,9vw,3.25rem)] font-black text-[#3a2200] relative z-10 tracking-tighter"
+            >
+              GRAM
+            </div>
           </div>
 
           <AnimatePresence>
