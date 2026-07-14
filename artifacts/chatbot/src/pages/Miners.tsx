@@ -36,7 +36,7 @@ export default function Miners() {
             <div className="flex flex-col items-end">
               <div className="text-[10px] font-bold text-muted-foreground mb-1.5 uppercase tracking-wider">LVL {miner.level}</div>
               <button className={`px-4 py-1.5 rounded-full text-sm font-bold flex items-center gap-1 ${miner.locked ? 'bg-muted text-muted-foreground' : 'bg-primary text-black shadow-[0_0_10px_rgba(245,166,35,0.3)]'}`}>
-                {miner.cost} ATF <ChevronRight className="w-3 h-3" />
+                {miner.cost} GMR <ChevronRight className="w-3 h-3" />
               </button>
             </div>
           </div>

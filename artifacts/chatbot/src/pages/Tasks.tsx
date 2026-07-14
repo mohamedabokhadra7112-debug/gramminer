@@ -32,7 +32,7 @@ export default function Tasks() {
               )}
               <div>
                 <h3 className={`font-bold text-sm ${task.completed ? 'text-muted-foreground line-through' : 'text-white'}`}>{task.title}</h3>
-                <div className={`text-xs font-black mt-0.5 ${task.completed ? 'text-muted-foreground' : 'text-primary'}`}>+{task.reward} ATF</div>
+                <div className={`text-xs font-black mt-0.5 ${task.completed ? 'text-muted-foreground' : 'text-primary'}`}>+{task.reward} GMR</div>
               </div>
             </div>
             
