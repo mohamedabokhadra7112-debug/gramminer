@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 @import 'tailwindcss';
 @import 'tw-animate-css';
@@ -13,14 +13,6 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
 
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-card-border: hsl(var(--card-border));
-
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-popover-border: hsl(var(--popover-border));
-
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
 
@@ -33,86 +25,51 @@
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
 
+  --color-success: hsl(var(--success));
   --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-
-  --color-chart-1: hsl(var(--chart-1));
-  --color-chart-2: hsl(var(--chart-2));
-  --color-chart-3: hsl(var(--chart-3));
-  --color-chart-4: hsl(var(--chart-4));
-  --color-chart-5: hsl(var(--chart-5));
 
   --font-sans: var(--app-font-sans);
-  --font-mono: var(--app-font-mono);
-
-  --radius-sm: var(--radius);
-  --radius-md: var(--radius);
-  --radius-lg: var(--radius);
-  --radius-xl: var(--radius);
 }
 
 :root {
-  --background: 240 10% 4%;
-  --foreground: 0 0% 95%;
+  --background: 240 20% 5%;
+  --foreground: 0 0% 100%;
   --border: 240 10% 15%;
-  --card: 240 10% 6%;
-  --card-foreground: 0 0% 95%;
-  --card-border: 175 100% 45% / 0.1;
-  --popover: 240 10% 6%;
-  --popover-foreground: 0 0% 95%;
-  --popover-border: 240 10% 15%;
-  --primary: 175 100% 45%;
-  --primary-foreground: 240 10% 4%;
-  --secondary: 240 10% 10%;
-  --secondary-foreground: 0 0% 95%;
-  --muted: 240 10% 12%;
-  --muted-foreground: 240 5% 65%;
-  --accent: 175 100% 45%;
-  --accent-foreground: 240 10% 4%;
-  --destructive: 0 100% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 240 10% 15%;
-  --ring: 175 100% 45%;
-  --chart-1: 175 100% 45%;
-  --chart-2: 120 100% 50%;
-  --chart-3: 280 100% 65%;
-  --chart-4: 30 100% 55%;
-  --chart-5: 0 100% 60%;
   
+  --primary: 40 96% 55%;
+  --primary-foreground: 240 20% 5%;
+  
+  --secondary: 240 10% 12%;
+  --secondary-foreground: 0 0% 95%;
+  
+  --muted: 240 10% 15%;
+  --muted-foreground: 240 5% 65%;
+  
+  --accent: 51 100% 50%;
+  --accent-foreground: 240 20% 5%;
+  
+  --success: 152 100% 50%;
+  --destructive: 0 100% 60%;
+
   --app-font-sans: 'Inter', sans-serif;
-  --app-font-mono: 'JetBrains Mono', monospace;
-  --radius: 0;
 
   color-scheme: dark;
 }
 
 .dark {
-  --background: 240 10% 4%;
-  --foreground: 0 0% 95%;
+  --background: 240 20% 5%;
+  --foreground: 0 0% 100%;
   --border: 240 10% 15%;
-  --card: 240 10% 6%;
-  --card-foreground: 0 0% 95%;
-  --card-border: 175 100% 45% / 0.1;
-  --popover: 240 10% 6%;
-  --popover-foreground: 0 0% 95%;
-  --popover-border: 240 10% 15%;
-  --primary: 175 100% 45%;
-  --primary-foreground: 240 10% 4%;
-  --secondary: 240 10% 10%;
+  --primary: 40 96% 55%;
+  --primary-foreground: 240 20% 5%;
+  --secondary: 240 10% 12%;
   --secondary-foreground: 0 0% 95%;
-  --muted: 240 10% 12%;
+  --muted: 240 10% 15%;
   --muted-foreground: 240 5% 65%;
-  --accent: 175 100% 45%;
-  --accent-foreground: 240 10% 4%;
+  --accent: 51 100% 50%;
+  --accent-foreground: 240 20% 5%;
+  --success: 152 100% 50%;
   --destructive: 0 100% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 240 10% 15%;
-  --ring: 175 100% 45%;
-  --chart-1: 175 100% 45%;
-  --chart-2: 120 100% 50%;
-  --chart-3: 280 100% 65%;
-  --chart-4: 30 100% 55%;
-  --chart-5: 0 100% 60%;
 }
 
 @layer base {
@@ -121,44 +78,31 @@
   }
 
   body {
-    @apply font-mono antialiased bg-background text-foreground;
+    @apply font-sans antialiased bg-background text-foreground;
   }
 }
 
-/* Custom terminal scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: hsl(var(--background));
-}
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
-  border-radius: 0;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--primary) / 0.5);
+.glow-text-success {
+  text-shadow: 0 0 15px hsl(var(--success) / 0.5);
 }
 
-.glow-text {
-  text-shadow: 0 0 10px hsl(var(--primary) / 0.5);
+.coin-gradient {
+  background: radial-gradient(circle at 30% 30%, #ffd700 0%, #f5a623 40%, #b87300 80%, #8a5300 100%);
+  box-shadow: 
+    inset 0 0 20px rgba(255, 255, 255, 0.5),
+    inset -10px -10px 30px rgba(0, 0, 0, 0.5),
+    0 10px 20px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(245, 166, 35, 0.4);
 }
-.glow-text-red {
-  text-shadow: 0 0 10px hsl(var(--destructive) / 0.5);
+
+.coin-edge {
+  background: conic-gradient(
+    #f5a623 0deg, #ffd700 45deg, #b87300 90deg, #f5a623 135deg, 
+    #ffd700 180deg, #b87300 225deg, #f5a623 270deg, #ffd700 315deg, #f5a623 360deg
+  );
 }
-.glow-border {
-  box-shadow: 0 0 10px hsl(var(--primary) / 0.2), inset 0 0 10px hsl(var(--primary) / 0.1);
-}
-.crt-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-  background-size: 100% 4px, 3px 100%;
-  z-index: 50;
-  pointer-events: none;
-  opacity: 0.4;
+
+/* Hide scrollbar for webkit to maintain clean app feel */
+::-webkit-scrollbar {
+  display: none;
 }
