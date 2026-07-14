@@ -1,23 +1,42 @@
+import { useState } from 'react';
 import CandlestickBg from '@/components/CandlestickBg';
 import { Settings, Wallet, Activity, Shield, LogOut } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
+import { useTelegramUser } from '@/context/TelegramUserContext';
 
 export default function Profile() {
-  const { holdingWallet, poolWallet } = useWallet();
+  const { minerLevel, walletAddress } = useWallet();
+  const { user: tgUser, avatarUrl } = useTelegramUser();
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  const userName = tgUser?.first_name
+    ? `${tgUser.first_name}${tgUser.last_name ? ` ${tgUser.last_name}` : ''}`
+    : 'Miner';
+  const userInitial = userName[0].toUpperCase();
+  const showAvatar = Boolean(avatarUrl) && !avatarFailed;
 
   return (
-    <div className="min-h-full flex flex-col relative w-full overflow-hidden px-4 pt-6">
+    <div className="min-h-full flex flex-col relative w-full px-4 pt-6">
       <CandlestickBg />
       
       <div className="relative z-10 flex flex-col items-center mt-2 mb-8">
-        <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center border-2 border-primary/50 relative mb-5 shadow-[0_0_20px_rgba(245,166,35,0.2)]">
-          <span className="font-black text-4xl text-primary">M</span>
+        <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center border-2 border-primary/50 relative mb-5 shadow-[0_0_20px_rgba(245,166,35,0.2)] overflow-hidden">
+          {showAvatar ? (
+            <img
+              src={avatarUrl!}
+              alt={userName}
+              className="w-full h-full object-cover"
+              onError={() => setAvatarFailed(true)}
+            />
+          ) : (
+            <span className="font-black text-4xl text-primary">{userInitial}</span>
+          )}
           <div className="absolute bottom-0 right-0 w-6 h-6 bg-success rounded-full border-2 border-background shadow-[0_0_10px_rgba(0,255,136,0.5)]" />
         </div>
-        <h1 className="text-3xl font-black text-white tracking-tight">Mohamed</h1>
-        <div className="text-sm text-primary font-black mt-1 uppercase tracking-widest">Level 12</div>
+        <h1 className="text-3xl font-black text-white tracking-tight">{userName}</h1>
+        <div className="text-sm text-primary font-black mt-1 uppercase tracking-widest">Level {minerLevel}</div>
         <div className="px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs font-mono font-medium text-muted-foreground mt-4">
-          UQCc...9bjv
+          {walletAddress || 'No wallet connected'}
         </div>
       </div>
       

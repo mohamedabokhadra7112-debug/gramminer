@@ -32,6 +32,7 @@
 }
 
 :root {
+  --app-height: 100dvh;
   --background: 240 20% 5%;
   --foreground: 0 0% 100%;
   --border: 240 10% 15%;
@@ -105,4 +106,10 @@
 /* Hide scrollbar for webkit to maintain clean app feel */
 ::-webkit-scrollbar {
   display: none;
+}
+
+/* Real, Telegram-aware viewport height — see useAppHeight() in App.tsx.
+   Falls back to 100dvh outside Telegram (plain browser preview). */
+.app-shell {
+  height: var(--app-height, 100dvh);
 }

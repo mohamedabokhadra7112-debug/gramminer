@@ -13,7 +13,10 @@ export default function BottomNav() {
   const [location] = useLocation();
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 h-[80px] bg-[#0a0a0f]/95 backdrop-blur-md border-t border-white/5 flex items-center justify-around px-2 z-50">
+    <div
+      className="absolute bottom-0 left-0 right-0 min-h-[80px] bg-[#0a0a0f]/95 backdrop-blur-md border-t border-white/5 flex items-center justify-around px-2 z-50"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+    >
       {navItems.map((item) => {
         const isActive = location === item.path;
         const Icon = item.icon;

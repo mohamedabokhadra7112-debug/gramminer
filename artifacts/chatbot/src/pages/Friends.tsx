@@ -28,7 +28,7 @@ export default function Friends() {
   };
 
   return (
-    <div className="min-h-full flex flex-col relative w-full overflow-hidden px-4 pt-6">
+    <div className="min-h-full flex flex-col relative w-full px-4 pt-6">
       <CandlestickBg />
 
       {/* Header */}

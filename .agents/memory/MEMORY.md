@@ -1,1 +1,2 @@
 - [Vercel imports may already be pnpm-workspace shaped](vercel-import-already-artifact-shaped.md) — check `.migration-backup` structure before assuming Next.js conversion is needed.
+- [Telegram Mini App real user + scroll fixes](telegram-mini-app-gotchas.md) — validate initData server-side for real accounts/photos; 100dvh alone breaks scroll inside Telegram's WebView.

@@ -1,31 +1,21 @@
 import { useState } from 'react';
 import { useWallet } from '@/context/WalletContext';
+import { useTelegramUser } from '@/context/TelegramUserContext';
 import CandlestickBg from '@/components/CandlestickBg';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp?: {
-        initDataUnsafe?: { user?: { id?: number; first_name?: string; username?: string } };
-        ready?: () => void;
-        expand?: () => void;
-      };
-    };
-  }
-}
-
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, addClickEarning, claimEarnings } = useWallet();
+  const { user: tgUser, avatarUrl } = useTelegramUser();
   const [clicks, setClicks] = useState<{ id: number; x: number; y: number }[]>([]);
   const [showWallet, setShowWallet] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
-  const tg = window.Telegram?.WebApp;
-  const tgUser = tg?.initDataUnsafe?.user;
   const userName = tgUser?.first_name || 'Miner';
   const userInitial = userName[0].toUpperCase();
+  const showAvatar = Boolean(avatarUrl) && !avatarFailed;
 
   const totalAssets = holdingWallet + poolWallet + sessionEarnings;
 
@@ -70,7 +60,7 @@ export default function Dashboard() {
   const shortAddress = walletAddress || 'ربط المحفظة';
 
   return (
-    <div className="min-h-full flex flex-col relative w-full overflow-hidden">
+    <div className="min-h-full flex flex-col relative w-full">
       <CandlestickBg />
 
       {/* Top Bar */}
@@ -90,8 +80,17 @@ export default function Dashboard() {
       <div className="px-4 relative z-10">
         <div className="bg-secondary/40 backdrop-blur-sm border border-white/5 rounded-2xl p-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30 relative">
-              <span className="font-bold text-primary">{userInitial}</span>
+            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30 relative overflow-hidden">
+              {showAvatar ? (
+                <img
+                  src={avatarUrl!}
+                  alt={userName}
+                  className="w-full h-full object-cover"
+                  onError={() => setAvatarFailed(true)}
+                />
+              ) : (
+                <span className="font-bold text-primary">{userInitial}</span>
+              )}
               <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-background rounded-full flex items-center justify-center">
                 <div className="w-2.5 h-2.5 bg-success rounded-full animate-pulse shadow-[0_0_8px_rgba(0,255,136,0.8)]" />
               </div>
@@ -117,7 +116,7 @@ export default function Dashboard() {
 
       {/* Balances */}
       <div className="flex flex-col items-center mt-6 relative z-10 px-4">
-        <div className="text-[32px] font-black text-white mb-4">
+        <div className="text-[clamp(1.5rem,7vw,2rem)] font-black text-white mb-4 text-center px-2">
           {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} GMR
         </div>
         <div className="flex gap-2 w-full max-w-sm">
@@ -138,7 +137,7 @@ export default function Dashboard() {
 
       {/* Session Earnings */}
       <div className="flex justify-center mt-6 relative z-10">
-        <div className="text-5xl font-black text-success glow-text-success tabular-nums">
+        <div className="text-[clamp(2rem,9vw,3rem)] font-black text-success glow-text-success tabular-nums">
           +{sessionEarnings.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
         </div>
       </div>
@@ -146,14 +145,14 @@ export default function Dashboard() {
       {/* The Big Coin — ثابتة مش بتتحرك */}
       <div className="flex-1 flex items-center justify-center relative z-10 mt-2 mb-2">
         <div
-          className="relative w-[280px] h-[280px] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl active:scale-95 transition-transform duration-100"
+          className="relative w-[min(280px,62vw)] h-[min(280px,62vw)] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl active:scale-95 transition-transform duration-100"
           onClick={handleCoinClick}
           onTouchStart={handleCoinClick}
         >
           <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
             <div className="absolute inset-4 rounded-full border-[3px] border-dashed border-[#b87300]/50"></div>
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
-            <div className="text-6xl font-black text-[#ffd700] drop-shadow-[0_4px_4px_rgba(0,0,0,0.4)] relative z-10 tracking-tighter"
+            <div className="text-[clamp(2.5rem,10vw,3.75rem)] font-black text-[#ffd700] drop-shadow-[0_4px_4px_rgba(0,0,0,0.4)] relative z-10 tracking-tighter"
               style={{ textShadow: '0 3px 0 #b87300, 0 6px 12px rgba(0,0,0,0.5)' }}>
               GMR
             </div>
