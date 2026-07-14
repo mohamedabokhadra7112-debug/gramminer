@@ -4,21 +4,34 @@ type WalletContextType = {
   holdingWallet: number;
   poolWallet: number;
   sessionEarnings: number;
+  referralBalance: number; // غير قابل للسحب — للشراء بس
   walletAddress: string | null;
   minerLevel: number;
+  referralCode: string;
+  referralCount: number;
   addClickEarning: (amount: number) => void;
   claimEarnings: () => void;
   connectWallet: (address: string) => void;
+  addReferral: () => void;
 };
 
 const WalletContext = createContext<WalletContextType | null>(null);
+
+function generateCode(): string {
+  const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  if (tgId) return `GMR${tgId}`;
+  return 'GMR' + Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [holdingWallet, setHoldingWallet] = useState(0);
   const [poolWallet, setPoolWallet] = useState(0);
   const [sessionEarnings, setSessionEarnings] = useState(0);
+  const [referralBalance, setReferralBalance] = useState(0);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [minerLevel] = useState(1); // الكل بيبدأ بجهاز رقم 1
+  const [minerLevel] = useState(1);
+  const [referralCode] = useState(() => generateCode());
+  const [referralCount, setReferralCount] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -38,14 +51,20 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   };
 
   const connectWallet = (address: string) => {
-    setWalletAddress(address);
+    setWalletAddress(address || null);
+  };
+
+  const addReferral = () => {
+    setReferralCount(prev => prev + 1);
+    setReferralBalance(prev => prev + 0.01);
   };
 
   return (
     <WalletContext.Provider value={{
       holdingWallet, poolWallet, sessionEarnings,
-      walletAddress, minerLevel,
-      addClickEarning, claimEarnings, connectWallet
+      referralBalance, walletAddress, minerLevel,
+      referralCode, referralCount,
+      addClickEarning, claimEarnings, connectWallet, addReferral
     }}>
       {children}
     </WalletContext.Provider>
@@ -53,7 +72,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useWallet() {
-  const context = useContext(WalletContext);
-  if (!context) throw new Error("useWallet must be used within WalletProvider");
-  return context;
+  const ctx = useContext(WalletContext);
+  if (!ctx) throw new Error('useWallet must be used within WalletProvider');
+  return ctx;
 }
