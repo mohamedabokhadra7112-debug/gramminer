@@ -10,15 +10,26 @@ export default function Dashboard() {
 
   const totalAssets = holdingWallet + poolWallet + sessionEarnings;
 
+  const playMiningTone = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.15);
+    } catch (_) {}
+  };
+
   const handleCoinClick = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
-    // Only prevent default on touch, mouse will be fine
-    if ('touches' in e) {
-      // Do not prevent default as React synthetic event doesn't require it for simple taps
-    }
-    
     const rect = e.currentTarget.getBoundingClientRect();
     let clientX, clientY;
-    
     if ('touches' in e) {
       clientX = e.touches[0].clientX;
       clientY = e.touches[0].clientY;
@@ -26,12 +37,12 @@ export default function Dashboard() {
       clientX = e.clientX;
       clientY = e.clientY;
     }
-    
     const x = clientX - rect.left;
     const y = clientY - rect.top;
 
     setClicks(prev => [...prev, { id: Date.now() + Math.random(), x, y }]);
     addClickEarning(0.001);
+    playMiningTone();
   };
 
   const handleAnimationEnd = (id: number) => {
@@ -83,7 +94,6 @@ export default function Dashboard() {
 
       {/* Balances */}
       <div className="flex flex-col items-center mt-6 relative z-10 px-4">
-        <div className="text-xs font-semibold text-muted-foreground tracking-widest mb-1">ASSETS</div>
         <div className="text-[32px] font-black text-white mb-4">
           {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ATF
         </div>
