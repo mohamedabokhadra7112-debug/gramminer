@@ -5,7 +5,6 @@ import WalletModal from '@/components/WalletModal';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import gramCoinImg from '@/assets/gram-coin.png';
-import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, addClickEarning, claimEarnings } = useWallet();
@@ -62,17 +61,8 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-full flex flex-col relative w-full">
-      {/* Page background = the uploaded mining artwork, cover + centered,
-          with a dark overlay so text stays readable on top of it. */}
-      <div
-        className="absolute inset-0 z-0"
-        style={{
-          backgroundImage: `url(${mineBgImg})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      />
-      <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
+      {/* Dark overlay so text stays readable on top of the global background */}
+      <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.50)' }} />
 
       {/* Top Bar */}
       <div className="flex items-center justify-between px-4 py-3 relative z-10">
