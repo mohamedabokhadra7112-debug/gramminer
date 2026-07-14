@@ -1,0 +1,19 @@
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "GramMiner"
+
+[[workflows.workflow]]
+name = "GramMiner"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=22967 BASE_PATH=/ pnpm --filter @workspace/chatbot run dev"
