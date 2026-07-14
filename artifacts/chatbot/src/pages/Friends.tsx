@@ -1,14 +1,19 @@
 import CandlestickBg from '@/components/CandlestickBg';
 import { Users, Copy, Share2, CheckCircle2 } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
+import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useState } from 'react';
+
+const BOT_USERNAME = 'GramCoin11_bot';
 
 export default function Friends() {
   const { referralCode, referralCount, referralBalance } = useWallet();
+  const { user: tgUser } = useTelegramUser();
   const [copied, setCopied] = useState(false);
 
-  const appUrl = 'https://gramminer-api-server-nine.vercel.app';
-  const referralLink = `https://t.me/GramBot?start=${referralCode}`;
+  // Referral link = bot username + the user's real Telegram id, so /start
+  // on the bot side can attribute the referral to the right person.
+  const referralLink = `https://t.me/${BOT_USERNAME}?start=${tgUser?.id ?? referralCode}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink).catch(() => {});

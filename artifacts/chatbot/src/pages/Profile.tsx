@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import CandlestickBg from '@/components/CandlestickBg';
+import WalletModal from '@/components/WalletModal';
 import { Settings, Wallet, Activity, Shield, LogOut } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
@@ -8,6 +9,7 @@ export default function Profile() {
   const { minerLevel, walletAddress } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [showWallet, setShowWallet] = useState(false);
 
   const userName = tgUser?.first_name
     ? `${tgUser.first_name}${tgUser.last_name ? ` ${tgUser.last_name}` : ''}`
@@ -41,7 +43,10 @@ export default function Profile() {
       </div>
       
       <div className="relative z-10 flex-1 space-y-3">
-        <div className="bg-secondary/60 backdrop-blur-sm border border-white/5 rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:bg-secondary/80 transition-colors">
+        <div
+          onClick={() => setShowWallet(true)}
+          className="bg-secondary/60 backdrop-blur-sm border border-white/5 rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:bg-secondary/80 transition-colors"
+        >
           <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-white">
             <Wallet className="w-6 h-6" />
           </div>
@@ -87,6 +92,8 @@ export default function Profile() {
           </button>
         </div>
       </div>
+
+      {showWallet && <WalletModal onClose={() => setShowWallet(false)} />}
     </div>
   );
 }

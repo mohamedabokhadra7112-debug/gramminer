@@ -44,10 +44,10 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
             <div className="text-success text-lg font-bold mb-2">✅ المحفظة متربطة</div>
             <div className="text-muted-foreground font-mono text-sm">{walletAddress}</div>
             <button
-              onClick={() => { connectWallet(''); onClose(); }}
+              onClick={() => { connectWallet(''); setStep('choose'); }}
               className="mt-4 px-6 py-2 rounded-xl bg-destructive/20 text-destructive font-bold text-sm"
             >
-              فصل المحفظة
+              فصل المحفظة وربط محفظة تانية
             </button>
           </div>
         ) : step === 'choose' ? (

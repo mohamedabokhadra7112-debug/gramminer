@@ -5,6 +5,7 @@ import CandlestickBg from '@/components/CandlestickBg';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import gramCoinImg from '@/assets/gram-coin.png';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, addClickEarning, claimEarnings } = useWallet();
@@ -65,7 +66,10 @@ export default function Dashboard() {
 
       {/* Top Bar */}
       <div className="flex items-center justify-between px-4 py-3 relative z-10">
-        <div className="font-black text-xl tracking-widest text-primary">GramMiner</div>
+        <div className="flex items-center gap-2">
+          <img src={gramCoinImg} alt="GramMiner" className="w-7 h-7 rounded-full object-cover scale-125" />
+          <span className="font-black text-xl tracking-widest text-primary">GramMiner</span>
+        </div>
         <div className="flex items-center gap-1">
           <button className="p-2 text-muted-foreground hover:text-white transition-colors">
             <ChevronDown className="w-5 h-5" />
@@ -126,12 +130,6 @@ export default function Dashboard() {
               {holdingWallet.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} GMR
             </div>
           </div>
-          <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-2 px-3 text-center">
-            <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">POOL WALLET</div>
-            <div className="text-sm font-bold text-white">
-              {poolWallet.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} GMR
-            </div>
-          </div>
         </div>
       </div>
 
@@ -149,13 +147,13 @@ export default function Dashboard() {
           onClick={handleCoinClick}
           onTouchStart={handleCoinClick}
         >
-          <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
-            <div className="absolute inset-4 rounded-full border-[3px] border-dashed border-[#b87300]/50"></div>
+          <div className="w-full h-full rounded-full flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
+            <img
+              src={gramCoinImg}
+              alt="GMR"
+              className="absolute inset-0 w-full h-full object-cover scale-110"
+            />
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
-            <div className="text-[clamp(2.5rem,10vw,3.75rem)] font-black text-[#ffd700] drop-shadow-[0_4px_4px_rgba(0,0,0,0.4)] relative z-10 tracking-tighter"
-              style={{ textShadow: '0 3px 0 #b87300, 0 6px 12px rgba(0,0,0,0.5)' }}>
-              GMR
-            </div>
           </div>
 
           <AnimatePresence>
