@@ -4,16 +4,21 @@ type WalletContextType = {
   holdingWallet: number;
   poolWallet: number;
   sessionEarnings: number;
+  walletAddress: string | null;
+  minerLevel: number;
   addClickEarning: (amount: number) => void;
   claimEarnings: () => void;
+  connectWallet: (address: string) => void;
 };
 
 const WalletContext = createContext<WalletContextType | null>(null);
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const [holdingWallet, setHoldingWallet] = useState(1157.141);
-  const [poolWallet, setPoolWallet] = useState(429.8584);
-  const [sessionEarnings, setSessionEarnings] = useState(1.9063);
+  const [holdingWallet, setHoldingWallet] = useState(0);
+  const [poolWallet, setPoolWallet] = useState(0);
+  const [sessionEarnings, setSessionEarnings] = useState(0);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [minerLevel] = useState(1); // الكل بيبدأ بجهاز رقم 1
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -32,8 +37,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setSessionEarnings(0);
   };
 
+  const connectWallet = (address: string) => {
+    setWalletAddress(address);
+  };
+
   return (
-    <WalletContext.Provider value={{ holdingWallet, poolWallet, sessionEarnings, addClickEarning, claimEarnings }}>
+    <WalletContext.Provider value={{
+      holdingWallet, poolWallet, sessionEarnings,
+      walletAddress, minerLevel,
+      addClickEarning, claimEarnings, connectWallet
+    }}>
       {children}
     </WalletContext.Provider>
   );

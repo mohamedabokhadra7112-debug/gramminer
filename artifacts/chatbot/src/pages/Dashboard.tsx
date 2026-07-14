@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import CandlestickBg from '@/components/CandlestickBg';
+import WalletModal from '@/components/WalletModal';
 import { ChevronDown, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -8,7 +9,7 @@ declare global {
   interface Window {
     Telegram?: {
       WebApp?: {
-        initDataUnsafe?: { user?: { first_name?: string; username?: string; photo_url?: string } };
+        initDataUnsafe?: { user?: { first_name?: string; username?: string } };
         ready?: () => void;
         expand?: () => void;
       };
@@ -17,22 +18,14 @@ declare global {
 }
 
 export default function Dashboard() {
-  const { holdingWallet, poolWallet, sessionEarnings, addClickEarning, claimEarnings } = useWallet();
+  const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, addClickEarning, claimEarnings } = useWallet();
   const [clicks, setClicks] = useState<{ id: number; x: number; y: number }[]>([]);
-  const [tgUser, setTgUser] = useState<{ name: string; initial: string } | null>(null);
+  const [showWallet, setShowWallet] = useState(false);
 
-  useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-      tg.ready?.();
-      tg.expand?.();
-      const user = tg.initDataUnsafe?.user;
-      if (user) {
-        const name = user.first_name || user.username || 'Miner';
-        setTgUser({ name, initial: name[0].toUpperCase() });
-      }
-    }
-  }, []);
+  const tg = window.Telegram?.WebApp;
+  const tgUser = tg?.initDataUnsafe?.user;
+  const userName = tgUser?.first_name || 'Miner';
+  const userInitial = userName[0].toUpperCase();
 
   const totalAssets = holdingWallet + poolWallet + sessionEarnings;
 
@@ -74,8 +67,7 @@ export default function Dashboard() {
     setClicks(prev => prev.filter(click => click.id !== id));
   };
 
-  const userName = tgUser?.name || 'Mohamed';
-  const userInitial = tgUser?.initial || 'M';
+  const shortAddress = walletAddress || 'ربط المحفظة';
 
   return (
     <div className="min-h-full flex flex-col relative w-full overflow-hidden">
@@ -106,13 +98,20 @@ export default function Dashboard() {
             </div>
             <div>
               <div className="font-semibold text-white">{userName}</div>
-              <div className="text-xs text-primary font-bold">Lvl 12</div>
+              <div className="text-xs text-primary font-bold">Lvl {minerLevel}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/5">
-            <span className="text-xs text-muted-foreground font-mono">UQCc...9bjv</span>
+
+          {/* Wallet Button */}
+          <button
+            onClick={() => setShowWallet(true)}
+            className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 hover:border-primary/30 transition-colors"
+          >
+            <span className={`text-xs font-mono ${walletAddress ? 'text-success' : 'text-primary'}`}>
+              {shortAddress}
+            </span>
             <ChevronDown className="w-3 h-3 text-muted-foreground" />
-          </div>
+          </button>
         </div>
       </div>
 
@@ -144,11 +143,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* The Big Coin */}
+      {/* The Big Coin — ثابتة مش بتتحرك */}
       <div className="flex-1 flex items-center justify-center relative z-10 mt-2 mb-2">
-        <motion.div
-          className="relative w-[280px] h-[280px] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl"
-          whileTap={{ scale: 0.95 }}
+        <div
+          className="relative w-[280px] h-[280px] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl active:scale-95 transition-transform duration-100"
           onClick={handleCoinClick}
           onTouchStart={handleCoinClick}
         >
@@ -177,7 +175,7 @@ export default function Dashboard() {
               </motion.div>
             ))}
           </AnimatePresence>
-        </motion.div>
+        </div>
       </div>
 
       {/* Claim Button */}
@@ -189,6 +187,9 @@ export default function Dashboard() {
           CLAIM
         </button>
       </div>
+
+      {/* Wallet Modal */}
+      {showWallet && <WalletModal onClose={() => setShowWallet(false)} />}
     </div>
   );
 }
