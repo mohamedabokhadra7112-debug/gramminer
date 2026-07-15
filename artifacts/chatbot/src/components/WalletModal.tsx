@@ -66,11 +66,11 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {connected ? (
-            <div className="text-center py-2 space-y-3">
+            <div className="flex flex-col items-center gap-4 pb-2">
               <div className="text-success text-lg font-bold">✅ المحفظة متربطة</div>
 
               {/* Short address display */}
-              <div className="bg-black/40 rounded-xl px-4 py-2 inline-block border border-success/20">
+              <div className="bg-black/40 rounded-xl px-6 py-2.5 border border-success/30">
                 <span className="text-success font-mono text-base font-bold tracking-wider">{shortAddr}</span>
               </div>
 
@@ -78,10 +78,10 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
                 <div className="text-xs text-muted-foreground/70">{tonWallet.device.appName}</div>
               )}
 
-              {/* Disconnect — clearly red-accented */}
+              {/* Disconnect — big, red, impossible to miss */}
               <button
                 onClick={handleDisconnect}
-                className="w-full mt-2 py-3 rounded-xl border-2 border-red-500/60 bg-red-500/10 text-red-400 font-black text-sm hover:bg-red-500/20 transition-colors"
+                className="w-full py-4 rounded-2xl border-2 border-red-500 bg-red-500/15 text-red-400 font-black text-base hover:bg-red-500/25 active:scale-95 transition-all"
               >
                 🔌 إلغاء ربط المحفظة
               </button>
