@@ -36,8 +36,8 @@ export function LanguageProvider({
       const stored = localStorage.getItem(userId ? `${STORAGE_KEY}_${userId}` : STORAGE_KEY);
       if (stored === 'ar' || stored === 'en') return stored;
     } catch {}
-    const tgLang = window.Telegram?.WebApp?.initDataUnsafe?.user?.language_code;
-    return tgLang === 'ar' ? 'ar' : 'en';
+    // Default is always English regardless of device/Telegram language_code
+    return 'en';
   });
 
   // Apply direction whenever lang changes

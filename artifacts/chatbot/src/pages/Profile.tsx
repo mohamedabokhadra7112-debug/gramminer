@@ -13,6 +13,13 @@ export default function Profile() {
   const [showWallet, setShowWallet] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  /** Pick a language then auto-close the panel after a short delay so the
+   *  user can see the ✓ mark before the screen changes. */
+  function handleLangSelect(value: Lang) {
+    setLang(value);
+    setTimeout(() => setShowSettings(false), 400);
+  }
+
   const userName = tgUser?.first_name
     ? `${tgUser.first_name}${tgUser.last_name ? ` ${tgUser.last_name}` : ''}`
     : 'Miner';
@@ -129,7 +136,7 @@ export default function Profile() {
               {SUPPORTED_LANGUAGES.map((l) => (
                 <button
                   key={l.value}
-                  onClick={() => setLang(l.value as Lang)}
+                  onClick={() => handleLangSelect(l.value as Lang)}
                   className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-colors ${
                     lang === l.value
                       ? 'bg-primary/15 border-primary/50 text-white'
