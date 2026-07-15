@@ -33,6 +33,48 @@ async function sendMessage(
   });
 }
 
+async function editMessageText(
+  token: string,
+  chat_id: number,
+  message_id: number,
+  text: string,
+  extra: Record<string, unknown> = {},
+) {
+  await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id, message_id, text, parse_mode: "HTML", ...extra }),
+  });
+}
+
+async function answerCallbackQuery(token: string, callback_query_id: string, text?: string) {
+  await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callback_query_id, ...(text ? { text } : {}) }),
+  });
+}
+
+/** The main admin panel inline keyboard. */
+function adminMainKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✏️ تغيير رسالة الترحيب", callback_data: "admin:welcome" },
+        { text: "📊 الإحصائيات",           callback_data: "admin:stats"   },
+      ],
+      [
+        { text: "📋 إدارة المهام",          callback_data: "admin:tasks"   },
+        { text: "📢 قنوات الاشتراك",        callback_data: "admin:channels"},
+      ],
+      [
+        { text: "💸 سعر الإحالة",           callback_data: "admin:referral"},
+        { text: "👤 إدارة المستخدمين",      callback_data: "admin:users"   },
+      ],
+    ],
+  };
+}
+
 /** Checks if a user is a member of a channel. Returns false on error. */
 async function isMemberOf(token: string, chatId: number, channelUsername: string): Promise<boolean> {
   try {
@@ -230,6 +272,99 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   }
 
   const update = req.body;
+  const adminId = getAdminId();
+
+  // ── callback_query: admin panel button presses ──────────────────────────────
+  if (update?.callback_query) {
+    const cq = update.callback_query;
+    const cqFrom = cq.from ?? {};
+    const isAdminCq = adminId > 0 && cqFrom.id === adminId;
+    const callbackId: string = cq.id;
+    const data: string = cq.data ?? "";
+    const chat_id: number = cq.message?.chat?.id;
+    const message_id: number = cq.message?.message_id;
+
+    // Always acknowledge immediately so Telegram stops the spinner
+    await answerCallbackQuery(token, callbackId);
+
+    // Every action re-validates admin server-side
+    if (!isAdminCq || !chat_id || !message_id) {
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    try {
+      if (data === "admin:stats") {
+        const db = await getDb();
+        let statsText = `📊 <b>الإحصائيات</b>\n\n🤖 Bot: GramMiner\n💎 Token: GMR\n✅ Status: Running`;
+        if (db) {
+          try {
+            const { usersTable } = await import("@workspace/db");
+            const { count } = await import("drizzle-orm");
+            const [total] = await db.select({ count: count() }).from(usersTable);
+            statsText += `\n👤 إجمالي المستخدمين: ${total?.count ?? 0}`;
+          } catch { /* ignore */ }
+        }
+        await editMessageText(token, chat_id, message_id, statsText, {
+          reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] },
+        });
+      } else if (data === "admin:welcome") {
+        await editMessageText(
+          token, chat_id, message_id,
+          `✏️ <b>تغيير رسالة الترحيب</b>\n\nابعت الرسالة الجديدة نصًا في المحادثة.\nاستخدم <code>{first_name}</code> لاسم المستخدم.`,
+          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
+        );
+      } else if (data === "admin:tasks") {
+        await editMessageText(
+          token, chat_id, message_id,
+          `📋 <b>إدارة المهام</b>\n\nهذه الميزة قيد التطوير.\nستتيح قريبًا إنشاء وإدارة مهام المستخدمين.`,
+          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
+        );
+      } else if (data === "admin:channels") {
+        const db = await getDb();
+        let chText = `📢 <b>قنوات الاشتراك الإجباري</b>\n\n`;
+        if (db) {
+          try {
+            const { channelsTable } = await import("@workspace/db");
+            const channels = await db.select().from(channelsTable);
+            if (channels.length === 0) {
+              chText += `لا توجد قنوات مضافة حاليًا.`;
+            } else {
+              chText += channels.map((c) => `• @${c.channelUsername} — ${c.channelName ?? c.channelUsername}`).join("\n");
+            }
+          } catch { chText += `تعذّر تحميل القنوات.`; }
+        } else {
+          chText += `قاعدة البيانات غير متاحة.`;
+        }
+        await editMessageText(token, chat_id, message_id, chText, {
+          reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] },
+        });
+      } else if (data === "admin:referral") {
+        await editMessageText(
+          token, chat_id, message_id,
+          `💸 <b>سعر الإحالة</b>\n\nهذه الميزة قيد التطوير.\nستتيح قريبًا تحديد مكافأة كل إحالة ناجحة.`,
+          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
+        );
+      } else if (data === "admin:users") {
+        await editMessageText(
+          token, chat_id, message_id,
+          `👤 <b>إدارة المستخدمين</b>\n\nابعت الـ ID أو Username بتاع المستخدم للبحث عنه وإدارته.`,
+          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
+        );
+      } else if (data === "admin:back") {
+        await editMessageText(token, chat_id, message_id, `👑 <b>لوحة تحكم GramMiner</b>\n\nاختر من القائمة:`, {
+          reply_markup: adminMainKeyboard(),
+        });
+      }
+    } catch (err) {
+      logger.error({ err }, "Failed to handle admin callback_query");
+    }
+
+    res.status(200).json({ ok: true });
+    return;
+  }
+
+  // ── Regular message handler ─────────────────────────────────────────────────
   const msg = update?.message;
   if (!msg) { res.status(200).json({ ok: true }); return; }
 
@@ -237,7 +372,6 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   const text: string = msg.text || "";
   const from = msg.from ?? {};
   const firstName: string = from.first_name || "Miner";
-  const adminId = getAdminId();
   const isAdmin = adminId > 0 && from.id === adminId;
 
   // Track the user in DB (best-effort)
@@ -275,31 +409,16 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
         token, chat_id,
         `💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!`,
       );
-    } else if (isAdmin && text === "/admin") {
-      await sendMessage(
-        token, chat_id,
-        `👑 <b>Admin Panel — GramMiner</b>\n\n` +
-          `📢 /broadcast [رسالة] — ارسل رسالة للكل\n` +
-          `📊 /stats — إحصائيات البوت\n` +
-          `🌐 أو افتح لوحة الأدمن من داخل الـ Mini App`,
-      );
-    } else if (isAdmin && text === "/stats") {
-      const db = await getDb();
-      let statsText = `📊 <b>GramMiner Stats</b>\n\n🤖 Bot: GramMiner\n💎 Token: GMR\n✅ Status: Running`;
-      if (db) {
-        try {
-          const { usersTable } = await import("@workspace/db");
-          const { count } = await import("drizzle-orm");
-          const [total] = await db.select({ count: count() }).from(usersTable);
-          statsText += `\n👤 Total users: ${total?.count ?? 0}`;
-        } catch { /* ignore */ }
+    } else if (text === "/admin") {
+      if (isAdmin) {
+        await sendMessage(token, chat_id, `👑 <b>لوحة تحكم GramMiner</b>\n\nاختر من القائمة:`, {
+          reply_markup: adminMainKeyboard(),
+        });
       }
-      await sendMessage(token, chat_id, statsText);
+      // Non-admins: silently ignore
     } else if (isAdmin && text.startsWith("/broadcast ")) {
       const broadcastMsg = text.replace("/broadcast ", "");
       await sendMessage(token, chat_id, `📢 <b>Broadcast:</b> ${broadcastMsg}\n\n⚠️ يحتاج قاعدة بيانات لإرسال للكل`);
-    } else if (!isAdmin && (text === "/admin" || text.startsWith("/broadcast"))) {
-      await sendMessage(token, chat_id, `❌ مش مسموحلك بالأمر ده!`);
     }
   } catch (err) {
     logger.error({ err }, "Failed to handle Telegram webhook update");
