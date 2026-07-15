@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
@@ -12,6 +12,7 @@ import BottomNav from './components/BottomNav';
 import { WalletProvider } from './context/WalletContext';
 import { TelegramUserProvider } from './context/TelegramUserContext';
 import { useTelegramUser } from './context/TelegramUserContext';
+import { LanguageProvider } from './context/LanguageContext';
 import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 
 const queryClient = new QueryClient();
@@ -43,6 +44,12 @@ function useAppHeight() {
       window.removeEventListener('resize', applyHeight);
     };
   }, []);
+}
+
+// Inner wrapper: reads userId so LanguageProvider can key storage per user
+function AppWithLanguage({ children }: { children: React.ReactNode }) {
+  const { user } = useTelegramUser();
+  return <LanguageProvider userId={user?.id}>{children}</LanguageProvider>;
 }
 
 function Router() {
@@ -83,13 +90,15 @@ function App() {
     <TonConnectUIProvider manifestUrl={manifestUrl}>
       <QueryClientProvider client={queryClient}>
         <TelegramUserProvider>
-          <WalletProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-              <div className="min-h-screen bg-black flex items-center justify-center">
-                <Router />
-              </div>
-            </WouterRouter>
-          </WalletProvider>
+          <AppWithLanguage>
+            <WalletProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+                <div className="min-h-screen bg-black flex items-center justify-center">
+                  <Router />
+                </div>
+              </WouterRouter>
+            </WalletProvider>
+          </AppWithLanguage>
         </TelegramUserProvider>
       </QueryClientProvider>
     </TonConnectUIProvider>
