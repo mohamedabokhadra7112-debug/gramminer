@@ -10,7 +10,8 @@ function getAdminId(): number {
 }
 
 function getBotConfig() {
-  const token = process.env["BOT_TOKEN"];
+  // Accept either BOT_TOKEN or TELEGRAM_BOT_TOKEN for backwards compatibility
+  const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
   const appUrl = process.env["APP_URL"];
   return { token, appUrl };
 }
@@ -209,10 +210,24 @@ router.get("/telegram/setup", async (_req, res) => {
   res.status(200).json({ ok: true, webhook: data, webhookUrl });
 });
 
+// Returns current webhook info for diagnostics.
+router.get("/telegram/webhookinfo", async (_req, res) => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(400).json({ error: "BOT_TOKEN / TELEGRAM_BOT_TOKEN not set" }); return; }
+  const r = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+  const data = await r.json();
+  res.status(200).json(data);
+});
+
 // Handles incoming Telegram bot updates.
-router.post("/telegram/webhook", async (req, res) => {
+// Accepts both /api/telegram/webhook (new) and /api/webhook (old Vercel path) to survive migration.
+router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   const { token, appUrl } = getBotConfig();
-  if (!token) { res.status(200).json({ ok: true }); return; }
+  if (!token) {
+    logger.error("BOT_TOKEN / TELEGRAM_BOT_TOKEN is not set — cannot handle Telegram update");
+    res.status(200).json({ ok: true });
+    return;
+  }
 
   const update = req.body;
   const msg = update?.message;
