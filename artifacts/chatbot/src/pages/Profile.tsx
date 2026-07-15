@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import CandlestickBg from '@/components/CandlestickBg';
 import WalletModal from '@/components/WalletModal';
 import { Settings, Wallet, Activity, Shield, LogOut } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
@@ -19,8 +18,8 @@ export default function Profile() {
 
   return (
     <div className="min-h-full flex flex-col relative w-full px-4 pt-6">
-      <CandlestickBg />
-      
+      <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
+
       <div className="relative z-10 flex flex-col items-center mt-2 mb-8">
         <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center border-2 border-primary/50 relative mb-5 shadow-[0_0_20px_rgba(245,166,35,0.2)] overflow-hidden">
           {showAvatar ? (

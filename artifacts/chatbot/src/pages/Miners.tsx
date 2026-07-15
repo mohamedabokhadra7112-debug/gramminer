@@ -1,4 +1,3 @@
-import CandlestickBg from '@/components/CandlestickBg';
 import { Zap, ChevronRight, Lock } from 'lucide-react';
 
 const miners = [
@@ -11,8 +10,8 @@ const miners = [
 export default function Miners() {
   return (
     <div className="min-h-full flex flex-col relative w-full px-4 pt-6">
-      <CandlestickBg />
-      
+      <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
+
       <div className="relative z-10 mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-black text-white tracking-tight">UPGRADES</h1>
         <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">

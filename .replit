@@ -25,3 +25,6 @@ outputType = "webview"
 [[ports]]
 localPort = 22967
 externalPort = 80
+
+[agent]
+expertMode = true

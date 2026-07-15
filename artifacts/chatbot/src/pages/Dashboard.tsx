@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import WalletModal from '@/components/WalletModal';
-import { ChevronDown, MoreHorizontal } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import gramCoinImg from '@/assets/gram-coin.png';
 
@@ -18,6 +18,11 @@ export default function Dashboard() {
   const showAvatar = Boolean(avatarUrl) && !avatarFailed;
 
   const totalAssets = holdingWallet + poolWallet + sessionEarnings;
+
+  // Short address: first 2 chars + "..." + last 2 chars  (e.g. "0:...9a")
+  const shortAddress = walletAddress
+    ? walletAddress.slice(0, 2) + '...' + walletAddress.slice(-2)
+    : null;
 
   const playMiningTone = () => {
     try {
@@ -57,31 +62,13 @@ export default function Dashboard() {
     setClicks(prev => prev.filter(click => click.id !== id));
   };
 
-  const shortAddress = walletAddress || 'ربط المحفظة';
-
   return (
     <div className="min-h-full flex flex-col relative w-full">
-      {/* Dark overlay so text stays readable on top of the global background */}
+      {/* Dark overlay */}
       <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.50)' }} />
 
-      {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 py-3 relative z-10">
-        <div className="flex items-center gap-2">
-          <img src={gramCoinImg} alt="GramMiner" className="w-7 h-7 rounded-full object-cover scale-125" />
-          <span className="font-black text-xl tracking-widest text-primary">GramMiner</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button className="p-2 text-muted-foreground hover:text-white transition-colors">
-            <ChevronDown className="w-5 h-5" />
-          </button>
-          <button className="p-2 text-muted-foreground hover:text-white transition-colors">
-            <MoreHorizontal className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* User Card */}
-      <div className="px-4 relative z-10">
+      {/* User Card — first visible element, no top bar above it */}
+      <div className="px-4 pt-3 relative z-10">
         <div className="bg-secondary/40 backdrop-blur-sm border border-white/5 rounded-2xl p-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30 relative overflow-hidden">
@@ -111,20 +98,21 @@ export default function Dashboard() {
             className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 hover:border-primary/30 transition-colors"
           >
             <span className={`text-xs font-mono ${walletAddress ? 'text-success' : 'text-primary'}`}>
-              {shortAddress}
+              {shortAddress ?? 'ربط المحفظة'}
             </span>
             <ChevronDown className="w-3 h-3 text-muted-foreground" />
           </button>
         </div>
       </div>
 
-      {/* Balances */}
-      <div className="flex flex-col items-center mt-6 relative z-10 px-4">
-        <div className="text-[clamp(1.5rem,7vw,2rem)] font-black text-white mb-4 text-center px-2">
+      {/* Balances — tighter spacing */}
+      <div className="flex flex-col items-center mt-3 relative z-10 px-4">
+        <div className="text-[clamp(1.5rem,7vw,2rem)] font-black text-white mb-2 text-center px-2">
           {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} GMR
         </div>
         <div className="flex gap-2 w-full max-w-sm">
-          <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-2 px-3 text-center">
+          {/* Holding Wallet — ~25% shorter vertically */}
+          <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
             <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">HOLDING WALLET</div>
             <div className="text-sm font-bold text-white">
               {holdingWallet.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} GMR
@@ -133,25 +121,23 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Session Earnings */}
-      <div className="flex justify-center mt-6 relative z-10">
+      {/* Session Earnings — tighter */}
+      <div className="flex justify-center mt-3 relative z-10">
         <div className="text-[clamp(2rem,9vw,3rem)] font-black text-success glow-text-success tabular-nums">
           +{sessionEarnings.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
         </div>
       </div>
 
-      {/* The Big Coin — ثابتة مش بتتحرك */}
+      {/* The Big Coin */}
       <div className="flex-1 flex items-center justify-center relative z-10 mt-2 mb-2">
         <div
-          className="relative w-[min(280px,62vw)] h-[min(280px,62vw)] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl active:scale-95 transition-transform duration-100"
+          className="relative w-[min(260px,58vw)] h-[min(260px,58vw)] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl active:scale-95 transition-transform duration-100"
           onClick={handleCoinClick}
           onTouchStart={handleCoinClick}
         >
           <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
-            <div
-              className="text-[clamp(2.2rem,9vw,3.25rem)] font-black text-[#3a2200] relative z-10 tracking-tighter"
-            >
+            <div className="text-[clamp(2.2rem,9vw,3.25rem)] font-black text-[#3a2200] relative z-10 tracking-tighter">
               GRAM
             </div>
           </div>
@@ -175,11 +161,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Claim Button */}
-      <div className="px-6 mb-6 relative z-10">
+      {/* Claim Button — tighter bottom */}
+      <div className="px-6 mb-4 relative z-10">
         <button
           onClick={claimEarnings}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#f5a623] to-[#ffd700] text-black font-black text-xl shadow-[0_0_20px_rgba(245,166,35,0.4)] hover:shadow-[0_0_30px_rgba(245,166,35,0.6)] active:scale-95 transition-all"
+          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#f5a623] to-[#ffd700] text-black font-black text-xl shadow-[0_0_20px_rgba(245,166,35,0.4)] hover:shadow-[0_0_30px_rgba(245,166,35,0.6)] active:scale-95 transition-all"
         >
           CLAIM
         </button>
