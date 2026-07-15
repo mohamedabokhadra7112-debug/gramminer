@@ -4,13 +4,19 @@ GramMiner is a Telegram Mini App "tap to mine" game — users tap a coin to earn
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/chatbot run dev` — run the web frontend (Telegram Mini App)
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000 in prod, serves `/api`)
+On Replit, two workflows run the app:
+
+- **Frontend** — `cd artifacts/chatbot && PORT=5000 BASE_PATH=/ API_PORT=8080 pnpm run dev` (serves the webview on port 5000)
+- **API Server** — `cd artifacts/api-server && PORT=8080 pnpm run dev` (backend on port 8080, not directly exposed)
+
+The Vite dev server proxies `/api/*` to the API server on `localhost:8080` (added in `artifacts/chatbot/vite.config.ts` — the original Vercel setup had the frontend and API deployed to separate domains with `VITE_API_URL`, which doesn't apply to Replit's single dev domain).
+
+Other commands:
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL` — Postgres connection string (already provisioned via Replit's built-in Postgres)
 - Optional env (for the Telegram bot webhook to work): `TELEGRAM_BOT_TOKEN`, `APP_URL`
 
 ## Stack
