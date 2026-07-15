@@ -48,7 +48,7 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
 
         {/* Sheet — slides up from the bottom */}
         <motion.div
-          className="relative w-full max-w-[430px] bg-[#0f0f1a] rounded-t-3xl p-6 border-t border-white/10"
+          className="relative w-full max-w-[430px] bg-[#0f0f1a] rounded-t-3xl p-6 pb-24 border-t border-white/10"
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
