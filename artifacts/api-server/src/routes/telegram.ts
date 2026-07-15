@@ -143,6 +143,7 @@ async function getWelcomeMessage(firstName: string): Promise<string> {
 async function upsertUser(user: {
   id: number;
   first_name?: string;
+  last_name?: string;
   username?: string;
   language_code?: string;
 }) {
@@ -160,6 +161,7 @@ async function upsertUser(user: {
       .values({
         telegramId:  user.id,
         firstName:   user.first_name ?? null,
+        lastName:    user.last_name  ?? null,
         username:    user.username   ?? null,
         language:    initialLang,
         lastActiveAt: new Date(),
@@ -168,12 +170,30 @@ async function upsertUser(user: {
         target: usersTable.telegramId,
         set: {
           firstName:    user.first_name ?? null,
+          lastName:     user.last_name  ?? null,
           username:     user.username   ?? null,
           lastActiveAt: new Date(),
           // language intentionally NOT updated here — preserve user's choice
         },
       });
   } catch { /* best-effort */ }
+}
+
+/** Fetches the user's persisted balance from the DB. Returns 0 if unavailable. */
+async function getUserBalance(telegramId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db
+      .select({ balance: usersTable.balance })
+      .from(usersTable)
+      .where(eq(usersTable.telegramId, telegramId));
+    return row?.balance ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** Reads the user's stored language; falls back to Telegram language_code or 'ar'. */
@@ -236,8 +256,11 @@ async function getLocalizedWelcomeMessage(
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-// Validates Telegram WebApp initData and returns the verified user.
-router.post("/telegram/auth", (req, res): void => {
+// Validates Telegram WebApp initData, syncs the user to the DB (register on
+// first sight / refresh basic info on return), and returns the verified user
+// together with their persisted GMR balance so the Frontend never shows a
+// stale or default "Miner" placeholder once a user has interacted before.
+router.post("/telegram/auth", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
   if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
@@ -250,8 +273,61 @@ router.post("/telegram/auth", (req, res): void => {
   const user = verifyInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
 
+  await upsertUser({
+    id: user.id,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    username: user.username,
+  });
+  const balance = await getUserBalance(user.id);
+
   const adminId = getAdminId();
-  res.status(200).json({ user, isAdmin: adminId > 0 && user.id === adminId });
+  res.status(200).json({ user: { ...user, balance }, isAdmin: adminId > 0 && user.id === adminId });
+});
+
+// Securely persists a mining-session claim. The claimed amount is added to
+// the user's DB-backed balance; the Telegram identity is re-verified from
+// initData server-side, so a client can never claim on behalf of another
+// user or spoof its own telegram_id.
+router.post("/telegram/claim", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const initData = req.body?.initData;
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "initData is required" });
+    return;
+  }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
+
+  const amount = Number(req.body?.amount);
+  // Reject non-finite, non-positive, or implausibly large amounts — a basic
+  // guard against obvious client tampering until real anti-cheat exists.
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000) {
+    res.status(400).json({ error: "Invalid claim amount" });
+    return;
+  }
+
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { eq, sql } = await import("drizzle-orm");
+    // Ensure the row exists (first-time claimers who never hit /auth yet).
+    await upsertUser({ id: user.id, first_name: user.first_name, last_name: user.last_name, username: user.username });
+    const [row] = await db
+      .update(usersTable)
+      .set({ balance: sql`${usersTable.balance} + ${amount}`, lastActiveAt: new Date() })
+      .where(eq(usersTable.telegramId, user.id))
+      .returning({ balance: usersTable.balance });
+    res.status(200).json({ balance: row?.balance ?? amount });
+  } catch (err) {
+    logger.error({ err, userId: user.id }, "Failed to persist claim");
+    res.status(500).json({ error: "Failed to persist claim" });
+  }
 });
 
 // Proxies the user's Telegram profile photo server-side (token stays hidden).

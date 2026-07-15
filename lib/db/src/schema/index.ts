@@ -14,6 +14,7 @@ export const usersTable = pgTable("gm_users", {
   telegramId: bigint("telegram_id", { mode: "number" }).notNull().unique(),
   username: text("username"),
   firstName: text("first_name"),
+  lastName: text("last_name"),
   balance: doublePrecision("balance").notNull().default(0),
   walletAddress: text("wallet_address"),
   isBanned: boolean("is_banned").notNull().default(false),

@@ -10,6 +10,7 @@
   "dashboard_connect_wallet": "ربط المحفظة",
   "dashboard_holding_wallet": "محفظة التوفير",
   "dashboard_claim": "استلام",
+  "dashboard_claim_failed": "تعذر حفظ رصيدك، حاول مرة أخرى.",
 
   "miners_title": "الترقيات",
   "miners_level": "مستوى",

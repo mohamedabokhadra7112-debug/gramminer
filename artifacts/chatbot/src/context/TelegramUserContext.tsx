@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { API_BASE } from '@/lib/telegramApi';
 
 type TelegramUser = {
   id: number;
   first_name?: string;
   last_name?: string;
   username?: string;
+  /** GMR balance persisted in the Neon DB, as of the last /telegram/auth sync. */
+  balance?: number;
 };
 
 type TelegramUserContextType = {
@@ -36,7 +39,11 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
       return;
     }
 
-    fetch('/api/telegram/auth', {
+    // Hits the Backend's sync/login endpoint: verifies initData server-side,
+    // registers the user on first sight (0 GMR) or refreshes their stored
+    // name, and returns their persisted balance so the UI never shows a
+    // stale "Miner" placeholder for a returning user.
+    fetch(`${API_BASE}/api/telegram/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
@@ -53,7 +60,7 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
       .finally(() => setIsLoading(false));
   }, []);
 
-  const avatarUrl = user?.id ? `/api/telegram/avatar/${user.id}` : null;
+  const avatarUrl = user?.id ? `${API_BASE}/api/telegram/avatar/${user.id}` : null;
 
   return (
     <TelegramUserContext.Provider value={{ user, avatarUrl, isVerified, isAdmin, isLoading }}>

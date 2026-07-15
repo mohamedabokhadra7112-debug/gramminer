@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import gramCoinImg from '@/assets/gram-coin.png';
 
 export default function Dashboard() {
-  const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, addClickEarning, claimEarnings } = useWallet();
+  const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, addClickEarning, claimEarnings } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
   const { t } = useLanguage();
   const [clicks, setClicks] = useState<{ id: number; x: number; y: number }[]>([]);
@@ -163,10 +163,14 @@ export default function Dashboard() {
       <div className="px-6 mb-4 relative z-10">
         <button
           onClick={claimEarnings}
-          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#f5a623] to-[#ffd700] text-black font-black text-xl shadow-[0_0_20px_rgba(245,166,35,0.4)] hover:shadow-[0_0_30px_rgba(245,166,35,0.6)] active:scale-95 transition-all"
+          disabled={isClaiming}
+          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#f5a623] to-[#ffd700] text-black font-black text-xl shadow-[0_0_20px_rgba(245,166,35,0.4)] hover:shadow-[0_0_30px_rgba(245,166,35,0.6)] active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {t('dashboard_claim')}
+          {isClaiming ? '...' : t('dashboard_claim')}
         </button>
+        {claimError && (
+          <div className="text-center text-xs text-destructive mt-2">{t('dashboard_claim_failed')}</div>
+        )}
       </div>
 
       {showWallet && <WalletModal onClose={() => setShowWallet(false)} />}
