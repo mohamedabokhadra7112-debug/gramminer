@@ -26,11 +26,19 @@ async function sendMessage(
   text: string,
   extra: Record<string, unknown> = {},
 ) {
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  logger.debug({ chat_id, hasReplyMarkup: !!extra["reply_markup"] }, "Calling Telegram sendMessage");
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id, text, parse_mode: "HTML", ...extra }),
   });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    logger.error({ status: r.status, data }, "Telegram sendMessage failed");
+  } else {
+    logger.debug({ status: r.status, data }, "Telegram sendMessage succeeded");
+  }
+  return data;
 }
 
 async function editMessageText(
@@ -335,14 +343,27 @@ router.get("/telegram/webhookinfo", async (_req, res) => {
 // Handles incoming Telegram bot updates.
 // Accepts both /api/telegram/webhook (new) and /api/webhook (old Vercel path) to survive migration.
 router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
+  logger.debug({ path: req.path, hasBody: !!req.body }, "Telegram webhook received");
+
   const { token, appUrl } = getBotConfig();
+  logger.debug(
+    {
+      tokenPresent: !!token,
+      tokenSource: process.env["BOT_TOKEN"] ? "BOT_TOKEN" : process.env["TELEGRAM_BOT_TOKEN"] ? "TELEGRAM_BOT_TOKEN" : "none",
+      appUrlPresent: !!appUrl,
+    },
+    "Bot config loaded",
+  );
   if (!token) {
-    logger.error("BOT_TOKEN / TELEGRAM_BOT_TOKEN is not set — cannot handle Telegram update");
+    logger.error(
+      "BOT_TOKEN / TELEGRAM_BOT_TOKEN is not set — stopping before any Telegram API call. Set the secret to enable the bot.",
+    );
     res.status(200).json({ ok: true });
     return;
   }
 
   const update = req.body;
+  logger.debug({ updateId: update?.update_id, messageText: update?.message?.text }, "Update received");
   const adminId = getAdminId();
 
   // ── callback_query: admin panel button presses ──────────────────────────────
@@ -450,6 +471,7 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
 
   try {
     if (text === "/start" || text.startsWith("/start ")) {
+      logger.debug({ chat_id, firstName }, "/start handler entered");
       // Resolve user's language (DB → Telegram lang_code → default)
       const lang = await getUserLanguage(from.id, from.language_code);
       const msgs = BOT_MSG[lang];
