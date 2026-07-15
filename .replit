@@ -16,4 +16,12 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=22967 BASE_PATH=/ pnpm --filter @workspace/chatbot run dev"
+args = "export PATH=\"/nix/store/7nfklihr3idvsd18aap75mqzbwxjjg0g-nodejs-24.3.0/bin:/nix/store/cl0x2532pxjbs2mgbhbysr1x75lcnhgz-corepack-nodejs-24.3.0/bin:$PATH\" && PORT=22967 BASE_PATH=/ pnpm --filter @workspace/chatbot run dev"
+waitForPort = 22967
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 22967
+externalPort = 80
