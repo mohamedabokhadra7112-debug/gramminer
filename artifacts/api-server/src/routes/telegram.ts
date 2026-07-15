@@ -1,10 +1,13 @@
-import { createHmac } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
+import { verifyInitData } from "../lib/telegramAuth";
+import { getDb } from "../lib/db";
 
 const router: IRouter = Router();
 
-const ADMIN_ID = 868999453;
+function getAdminId(): number {
+  return Number(process.env["ADMIN_ID"] ?? 0);
+}
 
 function getBotConfig() {
   const token = process.env["BOT_TOKEN"];
@@ -12,56 +15,7 @@ function getBotConfig() {
   return { token, appUrl };
 }
 
-type TelegramAuthUser = {
-  id: number;
-  first_name?: string;
-  last_name?: string;
-  username?: string;
-  photo_url?: string;
-};
-
-// Validates Telegram WebApp `initData` per Telegram's documented HMAC scheme,
-// so we only ever trust user info that genuinely came from Telegram — not
-// whatever a client claims. https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
-function verifyInitData(
-  initData: string,
-  token: string,
-): TelegramAuthUser | null {
-  const params = new URLSearchParams(initData);
-  const hash = params.get("hash");
-  if (!hash) return null;
-  params.delete("hash");
-
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n");
-
-  const secretKey = createHmac("sha256", "WebAppData").update(token).digest();
-  const computedHash = createHmac("sha256", secretKey)
-    .update(dataCheckString)
-    .digest("hex");
-
-  if (computedHash !== hash) return null;
-
-  // Telegram sends `auth_date`; reject stale init data (older than 24h) to
-  // limit replay of a leaked initData string.
-  const authDate = Number(params.get("auth_date"));
-  if (!authDate || Date.now() / 1000 - authDate > 60 * 60 * 24) return null;
-
-  const userRaw = params.get("user");
-  if (!userRaw) return null;
-
-  try {
-    return JSON.parse(userRaw) as TelegramAuthUser;
-  } catch {
-    return null;
-  }
-}
-
-// Simple in-memory cache for avatar file paths to avoid hitting Telegram's
-// API on every image request (the file_path Telegram returns is stable for
-// a given photo).
+// Simple in-memory cache for avatar file paths
 const avatarFilePathCache = new Map<number, { filePath: string | null; expiresAt: number }>();
 const AVATAR_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -78,46 +32,114 @@ async function sendMessage(
   });
 }
 
-// Validates the Telegram WebApp initData sent by the Mini App on load and
-// returns the real, verified Telegram user (name + id) behind it.
+/** Checks if a user is a member of a channel. Returns false on error. */
+async function isMemberOf(token: string, chatId: number, channelUsername: string): Promise<boolean> {
+  try {
+    const r = await fetch(
+      `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${channelUsername}&user_id=${chatId}`,
+    );
+    const data = (await r.json()) as { result?: { status?: string } };
+    const status = data?.result?.status;
+    return status === "member" || status === "administrator" || status === "creator";
+  } catch {
+    return false;
+  }
+}
+
+/** Returns channels the user is NOT subscribed to. */
+async function getMissingChannels(
+  token: string,
+  userId: number,
+): Promise<Array<{ channelUsername: string; channelName: string }>> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const { channelsTable } = await import("@workspace/db");
+    const channels = await db.select().from(channelsTable);
+    const missing: Array<{ channelUsername: string; channelName: string }> = [];
+    for (const ch of channels) {
+      const ok = await isMemberOf(token, userId, ch.channelUsername);
+      if (!ok) missing.push({ channelUsername: ch.channelUsername, channelName: ch.channelName ?? ch.channelUsername });
+    }
+    return missing;
+  } catch {
+    return [];
+  }
+}
+
+/** Gets welcome message from DB, falls back to default. */
+async function getWelcomeMessage(firstName: string): Promise<string> {
+  const db = await getDb();
+  if (db) {
+    try {
+      const { settingsTable } = await import("@workspace/db");
+      const { eq } = await import("drizzle-orm");
+      const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, "welcome_message"));
+      if (row?.value) return row.value.replace("{first_name}", firstName);
+    } catch { /* fall through */ }
+  }
+  return (
+    `⛏️ <b>Welcome to GramMiner, ${firstName}!</b>\n\n` +
+    `💰 Start mining GMR by tapping the coin!\n` +
+    `🏆 Compete with friends and earn rewards!\n\n` +
+    `👇 Press the button below to start:`
+  );
+}
+
+/** Upserts user in DB after any interaction. */
+async function upsertUser(user: { id: number; first_name?: string; username?: string }) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    await db
+      .insert(usersTable)
+      .values({
+        telegramId: user.id,
+        firstName: user.first_name ?? null,
+        username: user.username ?? null,
+        lastActiveAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: usersTable.telegramId,
+        set: {
+          firstName: user.first_name ?? null,
+          username: user.username ?? null,
+          lastActiveAt: new Date(),
+        },
+      });
+  } catch { /* best-effort */ }
+}
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
+// Validates Telegram WebApp initData and returns the verified user.
 router.post("/telegram/auth", (req, res): void => {
   const { token } = getBotConfig();
-  if (!token) {
-    res.status(503).json({ error: "BOT_TOKEN not set" });
-    return;
-  }
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = req.body?.initData;
-  if (typeof initData !== "string" || initData.length === 0) {
+  if (typeof initData !== "string" || !initData) {
     res.status(400).json({ error: "initData is required" });
     return;
   }
 
   const user = verifyInitData(initData, token);
-  if (!user) {
-    res.status(401).json({ error: "Invalid or expired Telegram initData" });
-    return;
-  }
+  if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
 
-  res.status(200).json({ user });
+  const adminId = getAdminId();
+  res.status(200).json({ user, isAdmin: adminId > 0 && user.id === adminId });
 });
 
-// Proxies the user's real Telegram profile photo. Telegram file URLs require
-// the bot token to resolve, so we fetch server-side and stream the bytes
-// back rather than exposing the token to the client.
+// Proxies the user's Telegram profile photo server-side (token stays hidden).
 router.get("/telegram/avatar/:userId", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) {
-    res.status(503).end();
-    return;
-  }
+  if (!token) { res.status(503).end(); return; }
 
   const raw = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
   const userId = Number(raw);
-  if (!Number.isFinite(userId)) {
-    res.status(400).end();
-    return;
-  }
+  if (!Number.isFinite(userId)) { res.status(400).end(); return; }
 
   try {
     const cached = avatarFilePathCache.get(userId);
@@ -137,53 +159,33 @@ router.get("/telegram/avatar/:userId", async (req, res): Promise<void> => {
       if (!fileId) {
         filePath = null;
       } else {
-        const fileRes = await fetch(
-          `https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`,
-        );
-        const fileData = (await fileRes.json()) as {
-          result?: { file_path?: string };
-        };
+        const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+        const fileData = (await fileRes.json()) as { result?: { file_path?: string } };
         filePath = fileData?.result?.file_path ?? null;
       }
 
       avatarFilePathCache.set(userId, { filePath, expiresAt: Date.now() + AVATAR_CACHE_TTL_MS });
     }
 
-    if (!filePath) {
-      res.status(404).end();
-      return;
-    }
+    if (!filePath) { res.status(404).end(); return; }
 
     const imageRes = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
-    if (!imageRes.ok || !imageRes.body) {
-      res.status(404).end();
-      return;
-    }
+    if (!imageRes.ok || !imageRes.body) { res.status(404).end(); return; }
 
-    res.setHeader(
-      "Content-Type",
-      imageRes.headers.get("content-type") ?? "image/jpeg",
-    );
+    res.setHeader("Content-Type", imageRes.headers.get("content-type") ?? "image/jpeg");
     res.setHeader("Cache-Control", "private, max-age=600");
-    const buffer = Buffer.from(await imageRes.arrayBuffer());
-    res.status(200).send(buffer);
+    res.status(200).send(Buffer.from(await imageRes.arrayBuffer()));
   } catch (err) {
     logger.error({ err, userId }, "Failed to fetch Telegram avatar");
     res.status(502).end();
   }
 });
 
-// Registers the Telegram webhook + bot commands for the GramMiner bot.
+// Registers the Telegram webhook and bot commands.
 router.get("/telegram/setup", async (_req, res) => {
   const { token, appUrl } = getBotConfig();
-  if (!token) {
-    res.status(400).json({ error: "BOT_TOKEN not set" });
-    return;
-  }
-  if (!appUrl) {
-    res.status(400).json({ error: "APP_URL not set" });
-    return;
-  }
+  if (!token) { res.status(400).json({ error: "BOT_TOKEN not set" }); return; }
+  if (!appUrl) { res.status(400).json({ error: "APP_URL not set" }); return; }
 
   const webhookUrl = `${appUrl}/api/telegram/webhook`;
   const r = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
@@ -210,80 +212,79 @@ router.get("/telegram/setup", async (_req, res) => {
 // Handles incoming Telegram bot updates.
 router.post("/telegram/webhook", async (req, res) => {
   const { token, appUrl } = getBotConfig();
-  if (!token) {
-    res.status(200).json({ ok: true });
-    return;
-  }
+  if (!token) { res.status(200).json({ ok: true }); return; }
 
   const update = req.body;
   const msg = update?.message;
-  if (!msg) {
-    res.status(200).json({ ok: true });
-    return;
-  }
+  if (!msg) { res.status(200).json({ ok: true }); return; }
 
-  const chat_id = msg.chat.id;
+  const chat_id: number = msg.chat.id;
   const text: string = msg.text || "";
-  const name = msg.from?.first_name || "Miner";
-  const isAdmin = msg.from?.id === ADMIN_ID;
+  const from = msg.from ?? {};
+  const firstName: string = from.first_name || "Miner";
+  const adminId = getAdminId();
+  const isAdmin = adminId > 0 && from.id === adminId;
+
+  // Track the user in DB (best-effort)
+  void upsertUser({ id: from.id, first_name: from.first_name, username: from.username });
 
   try {
-    if (text === "/start") {
-      await sendMessage(
-        token,
-        chat_id,
-        `⛏️ <b>Welcome to GramMiner, ${name}!</b>\n\n` +
-          `💰 Start mining GMR by tapping the coin!\n` +
-          `🏆 Compete with friends and earn rewards!\n\n` +
-          `👇 Press the button below to start:`,
-      );
-      await sendMessage(token, chat_id, "🚀 Open GramMiner and start earning GMR!", {
+    if (text === "/start" || text.startsWith("/start ")) {
+      // 1. Check mandatory channel subscriptions
+      const missing = await getMissingChannels(token, from.id);
+      if (missing.length > 0) {
+        const channelList = missing
+          .map((c) => `• <a href="https://t.me/${c.channelUsername}">${c.channelName || "@" + c.channelUsername}</a>`)
+          .join("\n");
+        await sendMessage(
+          token,
+          chat_id,
+          `⚠️ <b>يجب عليك الانضمام للقنوات التالية أولاً:</b>\n\n${channelList}\n\n` +
+            `بعد الانضمام، اضغط /start مجدداً للمتابعة.`,
+        );
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      // 2. Welcome message + open button in one message
+      const welcomeText = await getWelcomeMessage(firstName);
+      await sendMessage(token, chat_id, welcomeText, {
         reply_markup: {
           inline_keyboard: [
-            [
-              {
-                text: "⛏️ Open GramMiner",
-                web_app: { url: appUrl || "https://your-app.replit.app" },
-              },
-            ],
+            [{ text: "⛏️ Open GramMiner", web_app: { url: appUrl || "https://your-app.vercel.app" } }],
           ],
         },
       });
     } else if (text === "/balance") {
       await sendMessage(
-        token,
-        chat_id,
-        `💰 <b>Your GramMiner Balance</b>\n\n` +
-          `Open the app to see your full balance!\n` +
-          `⛏️ Keep mining to earn more GMR!`,
+        token, chat_id,
+        `💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!`,
       );
     } else if (isAdmin && text === "/admin") {
       await sendMessage(
-        token,
-        chat_id,
+        token, chat_id,
         `👑 <b>Admin Panel — GramMiner</b>\n\n` +
-          `الأوامر المتاحة:\n` +
-          `📢 /broadcast [رسالة] — ارسل رسالة لكل المستخدمين\n` +
+          `📢 /broadcast [رسالة] — ارسل رسالة للكل\n` +
           `📊 /stats — إحصائيات البوت\n` +
-          `⚙️ /setup — إعادة ضبط الويب هوك`,
+          `🌐 أو افتح لوحة الأدمن من داخل الـ Mini App`,
       );
     } else if (isAdmin && text === "/stats") {
-      await sendMessage(
-        token,
-        chat_id,
-        `📊 <b>GramMiner Stats</b>\n\n` +
-          `🤖 Bot: GramMiner\n` +
-          `💎 Token: GMR\n` +
-          `✅ Status: Running\n` +
-          `👑 Admin ID: ${ADMIN_ID}`,
-      );
+      const db = await getDb();
+      let statsText = `📊 <b>GramMiner Stats</b>\n\n🤖 Bot: GramMiner\n💎 Token: GMR\n✅ Status: Running`;
+      if (db) {
+        try {
+          const { usersTable } = await import("@workspace/db");
+          const { count } = await import("drizzle-orm");
+          const [total] = await db.select({ count: count() }).from(usersTable);
+          statsText += `\n👤 Total users: ${total?.count ?? 0}`;
+        } catch { /* ignore */ }
+      }
+      await sendMessage(token, chat_id, statsText);
     } else if (isAdmin && text.startsWith("/broadcast ")) {
       const broadcastMsg = text.replace("/broadcast ", "");
-      await sendMessage(
-        token,
-        chat_id,
-        `📢 <b>Broadcast Message Sent!</b>\n\n` + `Message: ${broadcastMsg}`,
-      );
+      await sendMessage(token, chat_id, `📢 <b>Broadcast:</b> ${broadcastMsg}\n\n⚠️ يحتاج قاعدة بيانات لإرسال للكل`);
+    } else if (!isAdmin && (text === "/admin" || text.startsWith("/broadcast"))) {
+      await sendMessage(token, chat_id, `❌ مش مسموحلك بالأمر ده!`);
     }
   } catch (err) {
     logger.error({ err }, "Failed to handle Telegram webhook update");

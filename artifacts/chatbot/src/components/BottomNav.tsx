@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'wouter';
-import { Pickaxe, Zap, ClipboardList, Users, User } from 'lucide-react';
+import { Pickaxe, Zap, ClipboardList, Users, User, Shield } from 'lucide-react';
 
-const navItems = [
+const baseNavItems = [
   { path: '/', label: 'Mine', icon: Pickaxe },
   { path: '/miners', label: 'Miners', icon: Zap },
   { path: '/tasks', label: 'Tasks', icon: ClipboardList },
@@ -11,8 +11,11 @@ const navItems = [
 
 const APP_VERSION = 'v1.0.4';
 
-export default function BottomNav() {
+export default function BottomNav({ showAdmin = false }: { showAdmin?: boolean }) {
   const [location] = useLocation();
+  const navItems = showAdmin
+    ? [...baseNavItems, { path: '/admin', label: 'Admin', icon: Shield }]
+    : baseNavItems;
 
   return (
     <div

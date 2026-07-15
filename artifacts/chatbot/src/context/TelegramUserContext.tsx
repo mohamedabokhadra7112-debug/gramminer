@@ -11,6 +11,7 @@ type TelegramUserContextType = {
   user: TelegramUser | null;
   avatarUrl: string | null;
   isVerified: boolean;
+  isAdmin: boolean;
   isLoading: boolean;
 };
 
@@ -19,6 +20,7 @@ const TelegramUserContext = createContext<TelegramUserContextType | null>(null);
 export function TelegramUserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<TelegramUser | null>(null);
   const [isVerified, setIsVerified] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -44,6 +46,7 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
         if (data?.user) {
           setUser(data.user);
           setIsVerified(true);
+          setIsAdmin(data.isAdmin === true);
         }
       })
       .catch(() => {})
@@ -53,7 +56,7 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
   const avatarUrl = user?.id ? `/api/telegram/avatar/${user.id}` : null;
 
   return (
-    <TelegramUserContext.Provider value={{ user, avatarUrl, isVerified, isLoading }}>
+    <TelegramUserContext.Provider value={{ user, avatarUrl, isVerified, isAdmin, isLoading }}>
       {children}
     </TelegramUserContext.Provider>
   );
