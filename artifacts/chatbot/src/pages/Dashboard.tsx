@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
+import { useLanguage } from '@/context/LanguageContext';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -9,6 +10,7 @@ import gramCoinImg from '@/assets/gram-coin.png';
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, addClickEarning, claimEarnings } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
+  const { t } = useLanguage();
   const [clicks, setClicks] = useState<{ id: number; x: number; y: number }[]>([]);
   const [showWallet, setShowWallet] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -19,7 +21,6 @@ export default function Dashboard() {
 
   const totalAssets = holdingWallet + poolWallet + sessionEarnings;
 
-  // Short address: first 2 chars + "..." + last 2 chars  (e.g. "0:...9a")
   const shortAddress = walletAddress
     ? walletAddress.slice(0, 2) + '...' + walletAddress.slice(-2)
     : null;
@@ -64,10 +65,9 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-full flex flex-col relative w-full">
-      {/* Dark overlay */}
       <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.50)' }} />
 
-      {/* User Card — first visible element, no top bar above it */}
+      {/* User Card */}
       <div className="px-4 pt-3 relative z-10">
         <div className="bg-secondary/40 backdrop-blur-sm border border-white/5 rounded-2xl p-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -88,32 +88,30 @@ export default function Dashboard() {
             </div>
             <div>
               <div className="font-semibold text-white">{userName}</div>
-              <div className="text-xs text-primary font-bold">Lvl {minerLevel}</div>
+              <div className="text-xs text-primary font-bold">{t('dashboard_level')} {minerLevel}</div>
             </div>
           </div>
 
-          {/* Wallet Button */}
           <button
             onClick={() => setShowWallet(true)}
             className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 hover:border-primary/30 transition-colors"
           >
             <span className={`text-xs font-mono ${walletAddress ? 'text-success' : 'text-primary'}`}>
-              {shortAddress ?? 'ربط المحفظة'}
+              {shortAddress ?? t('dashboard_connect_wallet')}
             </span>
             <ChevronDown className="w-3 h-3 text-muted-foreground" />
           </button>
         </div>
       </div>
 
-      {/* Balances — tighter spacing */}
+      {/* Balances */}
       <div className="flex flex-col items-center mt-3 relative z-10 px-4">
         <div className="text-[clamp(1.5rem,7vw,2rem)] font-black text-white mb-2 text-center px-2">
           {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} GMR
         </div>
         <div className="flex gap-2 w-full max-w-sm">
-          {/* Holding Wallet — ~25% shorter vertically */}
           <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
-            <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">HOLDING WALLET</div>
+            <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">{t('dashboard_holding_wallet')}</div>
             <div className="text-sm font-bold text-white">
               {holdingWallet.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} GMR
             </div>
@@ -121,7 +119,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Session Earnings — tighter */}
+      {/* Session Earnings */}
       <div className="flex justify-center mt-3 relative z-10">
         <div className="text-[clamp(2rem,9vw,3rem)] font-black text-success glow-text-success tabular-nums">
           +{sessionEarnings.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
@@ -161,17 +159,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Claim Button — tighter bottom */}
+      {/* Claim Button */}
       <div className="px-6 mb-4 relative z-10">
         <button
           onClick={claimEarnings}
           className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#f5a623] to-[#ffd700] text-black font-black text-xl shadow-[0_0_20px_rgba(245,166,35,0.4)] hover:shadow-[0_0_30px_rgba(245,166,35,0.6)] active:scale-95 transition-all"
         >
-          CLAIM
+          {t('dashboard_claim')}
         </button>
       </div>
 
-      {/* Wallet Modal */}
       {showWallet && <WalletModal onClose={() => setShowWallet(false)} />}
     </div>
   );

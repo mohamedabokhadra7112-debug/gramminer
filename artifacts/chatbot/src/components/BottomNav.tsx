@@ -1,21 +1,21 @@
 import { Link, useLocation } from 'wouter';
 import { Pickaxe, Zap, ClipboardList, Users, User, Shield } from 'lucide-react';
-
-const baseNavItems = [
-  { path: '/', label: 'Mine', icon: Pickaxe },
-  { path: '/miners', label: 'Miners', icon: Zap },
-  { path: '/tasks', label: 'Tasks', icon: ClipboardList },
-  { path: '/friends', label: 'Friends', icon: Users },
-  { path: '/profile', label: 'Profile', icon: User },
-];
+import { useLanguage } from '@/context/LanguageContext';
 
 const APP_VERSION = 'v1.0.4';
 
 export default function BottomNav({ showAdmin = false }: { showAdmin?: boolean }) {
   const [location] = useLocation();
-  const navItems = showAdmin
-    ? [...baseNavItems, { path: '/admin', label: 'Admin', icon: Shield }]
-    : baseNavItems;
+  const { t } = useLanguage();
+
+  const navItems = [
+    { path: '/',        label: t('nav_mine'),    icon: Pickaxe      },
+    { path: '/miners',  label: t('nav_miners'),  icon: Zap          },
+    { path: '/tasks',   label: t('nav_tasks'),   icon: ClipboardList },
+    { path: '/friends', label: t('nav_friends'), icon: Users        },
+    { path: '/profile', label: t('nav_profile'), icon: User         },
+    ...(showAdmin ? [{ path: '/admin', label: t('nav_admin'), icon: Shield }] : []),
+  ];
 
   return (
     <div
@@ -28,7 +28,11 @@ export default function BottomNav({ showAdmin = false }: { showAdmin?: boolean }
           const Icon = item.icon;
 
           return (
-            <Link key={item.path} href={item.path} className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 cursor-pointer touch-manipulation">
+            <Link
+              key={item.path}
+              href={item.path}
+              className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 cursor-pointer touch-manipulation"
+            >
               <div className={`p-2 rounded-xl transition-colors duration-200 ${isActive ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}>
                 <Icon className="w-6 h-6" strokeWidth={isActive ? 2.5 : 2} />
               </div>

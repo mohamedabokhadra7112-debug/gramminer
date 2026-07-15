@@ -2,14 +2,15 @@ import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import { useWallet } from '@/context/WalletContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function WalletModal({ onClose }: { onClose: () => void }) {
   const [tonConnectUI] = useTonConnectUI();
   const tonWallet = useTonWallet();
   const { connectWallet, walletAddress } = useWallet();
+  const { t } = useLanguage();
 
-  // Sync TON wallet address → WalletContext whenever it changes
   useEffect(() => {
     if (tonWallet?.account?.address) {
       connectWallet(tonWallet.account.address);
@@ -29,7 +30,6 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
   const connected = Boolean(tonWallet?.account?.address || walletAddress);
   const displayAddress = tonWallet?.account?.address || walletAddress;
 
-  // Ultra-short: first 2 chars + "..." + last 2 chars  →  "0:...9a"
   const shortAddr = displayAddress
     ? displayAddress.slice(0, 2) + '...' + displayAddress.slice(-2)
     : '';
@@ -46,7 +46,7 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
           onClick={onClose}
         />
 
-        {/* Sheet — slides up from the bottom */}
+        {/* Sheet */}
         <motion.div
           className="relative w-full max-w-[430px] bg-[#0f0f1a] rounded-t-3xl p-6 pb-24 border-t border-white/10"
           initial={{ y: '100%' }}
@@ -59,7 +59,7 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
 
           {/* Header */}
           <div className="flex items-center justify-between mb-5 mt-2">
-            <h2 className="text-xl font-black text-white">ربط المحفظة</h2>
+            <h2 className="text-xl font-black text-white">{t('wallet_title')}</h2>
             <button onClick={onClose} className="p-2 text-muted-foreground hover:text-white">
               <X className="w-5 h-5" />
             </button>
@@ -67,9 +67,8 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
 
           {connected ? (
             <div className="flex flex-col items-center gap-4 pb-2">
-              <div className="text-success text-lg font-bold">✅ المحفظة متربطة</div>
+              <div className="text-success text-lg font-bold">{t('wallet_connected')}</div>
 
-              {/* Short address display */}
               <div className="bg-black/40 rounded-xl px-6 py-2.5 border border-success/30">
                 <span className="text-success font-mono text-base font-bold tracking-wider">{shortAddr}</span>
               </div>
@@ -78,21 +77,19 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
                 <div className="text-xs text-muted-foreground/70">{tonWallet.device.appName}</div>
               )}
 
-              {/* Disconnect — big, red, impossible to miss */}
               <button
                 onClick={handleDisconnect}
                 className="w-full py-4 rounded-2xl border-2 border-red-500 bg-red-500/15 text-red-400 font-black text-base hover:bg-red-500/25 active:scale-95 transition-all"
               >
-                🔌 إلغاء ربط المحفظة
+                {t('wallet_disconnect')}
               </button>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground text-center mb-4">
-                اختر محفظتك للاتصال بـ GramMiner
+                {t('wallet_choose')}
               </p>
 
-              {/* TON Connect button */}
               <button
                 onClick={handleConnect}
                 className="w-full flex items-center gap-4 p-4 rounded-2xl bg-secondary/60 border border-primary/30 hover:border-primary/60 transition-colors"
@@ -102,14 +99,12 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="text-left">
                   <div className="font-bold text-white">TON Connect</div>
-                  <div className="text-xs text-muted-foreground">
-                    Tonkeeper · Telegram Wallet · MyTonWallet · وغيرها
-                  </div>
+                  <div className="text-xs text-muted-foreground">{t('wallet_ton_wallets')}</div>
                 </div>
               </button>
 
               <p className="text-[10px] text-muted-foreground/50 text-center pt-2">
-                يتم ربط المحفظة بشكل آمن عبر TON Connect الرسمي
+                {t('wallet_secure_note')}
               </p>
             </div>
           )}

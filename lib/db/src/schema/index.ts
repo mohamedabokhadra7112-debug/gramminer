@@ -19,6 +19,7 @@ export const usersTable = pgTable("gm_users", {
   isBanned: boolean("is_banned").notNull().default(false),
   restrictWithdrawal: boolean("restrict_withdrawal").notNull().default(false),
   blockedBot: boolean("blocked_bot").notNull().default(false),
+  language: text("language"),
   lastActiveAt: timestamp("last_active_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

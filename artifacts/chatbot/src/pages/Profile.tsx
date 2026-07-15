@@ -8,7 +8,7 @@ import { useLanguage, SUPPORTED_LANGUAGES, type Lang } from '@/context/LanguageC
 export default function Profile() {
   const { minerLevel, walletAddress } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
-  const { lang, setLang } = useLanguage();
+  const { lang, setLang, t } = useLanguage();
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [showWallet, setShowWallet] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -19,7 +19,6 @@ export default function Profile() {
   const userInitial = userName[0].toUpperCase();
   const showAvatar = Boolean(avatarUrl) && !avatarFailed;
 
-  // Short wallet address: first 6 + last 4 chars
   const shortAddr = walletAddress
     ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
     : null;
@@ -32,29 +31,24 @@ export default function Profile() {
       <div className="relative z-10 flex flex-col items-center mt-2 mb-8">
         <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center border-2 border-primary/50 relative mb-5 shadow-[0_0_20px_rgba(245,166,35,0.2)] overflow-hidden">
           {showAvatar ? (
-            <img
-              src={avatarUrl!}
-              alt={userName}
-              className="w-full h-full object-cover"
-              onError={() => setAvatarFailed(true)}
-            />
+            <img src={avatarUrl!} alt={userName} className="w-full h-full object-cover" onError={() => setAvatarFailed(true)} />
           ) : (
             <span className="font-black text-4xl text-primary">{userInitial}</span>
           )}
           <div className="absolute bottom-0 right-0 w-6 h-6 bg-success rounded-full border-2 border-background shadow-[0_0_10px_rgba(0,255,136,0.5)]" />
         </div>
         <h1 className="text-3xl font-black text-white tracking-tight">{userName}</h1>
-        <div className="text-sm text-primary font-black mt-1 uppercase tracking-widest">Level {minerLevel}</div>
+        <div className="text-sm text-primary font-black mt-1 uppercase tracking-widest">{t('profile_level')} {minerLevel}</div>
 
         {/* Wallet status badge */}
         <div className="px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs font-medium mt-4 flex flex-col items-center gap-0.5">
           {walletAddress ? (
             <>
-              <span className="text-success font-semibold">✅ Connected</span>
+              <span className="text-success font-semibold">{t('profile_connected')}</span>
               <span className="font-mono text-[10px] text-muted-foreground">{shortAddr}</span>
             </>
           ) : (
-            <span className="text-destructive/80">❌ Not Connected</span>
+            <span className="text-destructive/80">{t('profile_not_connected')}</span>
           )}
         </div>
       </div>
@@ -69,8 +63,8 @@ export default function Profile() {
             <Wallet className="w-6 h-6" />
           </div>
           <div className="flex-1">
-            <div className="font-bold text-white mb-0.5">Wallet Connection</div>
-            <div className="text-xs text-muted-foreground">Manage connected wallets</div>
+            <div className="font-bold text-white mb-0.5">{t('profile_wallet_connection')}</div>
+            <div className="text-xs text-muted-foreground">{t('profile_wallet_desc')}</div>
           </div>
         </div>
 
@@ -79,8 +73,8 @@ export default function Profile() {
             <Activity className="w-6 h-6" />
           </div>
           <div className="flex-1">
-            <div className="font-bold text-white mb-0.5">Mining Stats</div>
-            <div className="text-xs text-muted-foreground">View detailed analytics</div>
+            <div className="font-bold text-white mb-0.5">{t('profile_mining_stats')}</div>
+            <div className="text-xs text-muted-foreground">{t('profile_mining_stats_desc')}</div>
           </div>
         </div>
 
@@ -89,8 +83,8 @@ export default function Profile() {
             <Shield className="w-6 h-6" />
           </div>
           <div className="flex-1">
-            <div className="font-bold text-white mb-0.5">Security</div>
-            <div className="text-xs text-muted-foreground">2FA and recovery options</div>
+            <div className="font-bold text-white mb-0.5">{t('profile_security')}</div>
+            <div className="text-xs text-muted-foreground">{t('profile_security_desc')}</div>
           </div>
         </div>
 
@@ -102,8 +96,8 @@ export default function Profile() {
             <Settings className="w-6 h-6" />
           </div>
           <div className="flex-1">
-            <div className="font-bold text-white mb-0.5">Settings</div>
-            <div className="text-xs text-muted-foreground">App preferences</div>
+            <div className="font-bold text-white mb-0.5">{t('profile_settings')}</div>
+            <div className="text-xs text-muted-foreground">{t('profile_settings_desc')}</div>
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </div>
@@ -114,22 +108,22 @@ export default function Profile() {
 
       {/* ── Settings Panel ── */}
       {showSettings && (
-        <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.85)' }}>
+        <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.90)' }}>
           {/* Header */}
           <div className="flex items-center gap-3 px-4 pt-8 pb-4 border-b border-white/10">
             <button
               onClick={() => setShowSettings(false)}
-              className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+              className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors text-lg font-bold"
             >
               ‹
             </button>
-            <h2 className="text-lg font-black text-white">Settings</h2>
+            <h2 className="text-lg font-black text-white">{t('profile_settings')}</h2>
           </div>
 
           {/* Language section */}
           <div className="flex-1 overflow-y-auto px-4 pt-6">
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">
-              Language / اللغة
+              {t('profile_language_label')}
             </p>
             <div className="space-y-2">
               {SUPPORTED_LANGUAGES.map((l) => (
@@ -144,9 +138,7 @@ export default function Profile() {
                 >
                   <span className="text-2xl">{l.flag}</span>
                   <span className="flex-1 text-left font-semibold">{l.label}</span>
-                  {lang === l.value && (
-                    <Check className="w-5 h-5 text-primary" />
-                  )}
+                  {lang === l.value && <Check className="w-5 h-5 text-primary" />}
                 </button>
               ))}
             </div>

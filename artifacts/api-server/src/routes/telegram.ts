@@ -129,30 +129,101 @@ async function getWelcomeMessage(firstName: string): Promise<string> {
   );
 }
 
-/** Upserts user in DB after any interaction. */
-async function upsertUser(user: { id: number; first_name?: string; username?: string }) {
+/** Upserts user in DB after any interaction.
+ *  language_code is saved on first INSERT only — never overwritten on update
+ *  so the user's own language preference (set via Mini App) is preserved. */
+async function upsertUser(user: {
+  id: number;
+  first_name?: string;
+  username?: string;
+  language_code?: string;
+}) {
   const db = await getDb();
   if (!db) return;
   try {
     const { usersTable } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
+    // Map Telegram language_code to supported app language
+    const initialLang = user.language_code === "ar" ? "ar"
+                      : user.language_code           ? "en"
+                      : null;
     await db
       .insert(usersTable)
       .values({
-        telegramId: user.id,
-        firstName: user.first_name ?? null,
-        username: user.username ?? null,
+        telegramId:  user.id,
+        firstName:   user.first_name ?? null,
+        username:    user.username   ?? null,
+        language:    initialLang,
         lastActiveAt: new Date(),
       })
       .onConflictDoUpdate({
         target: usersTable.telegramId,
         set: {
-          firstName: user.first_name ?? null,
-          username: user.username ?? null,
+          firstName:    user.first_name ?? null,
+          username:     user.username   ?? null,
           lastActiveAt: new Date(),
+          // language intentionally NOT updated here — preserve user's choice
         },
       });
   } catch { /* best-effort */ }
+}
+
+/** Reads the user's stored language; falls back to Telegram language_code or 'ar'. */
+async function getUserLanguage(
+  telegramId: number,
+  fallbackLangCode?: string,
+): Promise<"ar" | "en"> {
+  const db = await getDb();
+  if (db) {
+    try {
+      const { usersTable } = await import("@workspace/db");
+      const { eq }         = await import("drizzle-orm");
+      const [row] = await db
+        .select({ language: usersTable.language })
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, telegramId));
+      const lang = row?.language;
+      if (lang === "ar" || lang === "en") return lang;
+    } catch { /* fall through */ }
+  }
+  return fallbackLangCode === "ar" ? "ar" : "en";
+}
+
+/** Bot UI strings — indexed by language then key. */
+const BOT_MSG: Record<"ar" | "en", Record<string, string>> = {
+  ar: {
+    missing_channels: "⚠️ <b>يجب عليك الانضمام للقنوات التالية أولاً:</b>\n\n{channels}\n\nبعد الانضمام، اضغط /start مجدداً للمتابعة.",
+    open_button:      "⛏️ افتح GramMiner",
+    balance:          "💰 <b>رصيدك في GramMiner</b>\n\nافتح التطبيق لرؤية رصيدك الكامل!\n⛏️ استمر في التعدين لكسب المزيد من GMR!",
+    welcome_default:  "⛏️ <b>مرحباً بك في GramMiner, {first_name}!</b>\n\n💰 ابدأ تعدين GMR بالضغط على العملة!\n🏆 نافس أصدقاءك واكسب مكافآت!\n\n👇 اضغط الزر أدناه للبدء:",
+  },
+  en: {
+    missing_channels: "⚠️ <b>You must join the following channels first:</b>\n\n{channels}\n\nAfter joining, press /start again to continue.",
+    open_button:      "⛏️ Open GramMiner",
+    balance:          "💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!",
+    welcome_default:  "⛏️ <b>Welcome to GramMiner, {first_name}!</b>\n\n💰 Start mining GMR by tapping the coin!\n🏆 Compete with friends and earn rewards!\n\n👇 Press the button below to start:",
+  },
+};
+
+/** Returns the localized welcome message: tries language-specific DB key first. */
+async function getLocalizedWelcomeMessage(
+  firstName: string,
+  lang: "ar" | "en",
+): Promise<string> {
+  const db = await getDb();
+  if (db) {
+    try {
+      const { settingsTable } = await import("@workspace/db");
+      const { eq }            = await import("drizzle-orm");
+      // Try language-specific key (welcome_message_ar / welcome_message_en) first
+      const [langRow] = await db.select().from(settingsTable).where(eq(settingsTable.key, `welcome_message_${lang}`));
+      if (langRow?.value) return langRow.value.replace("{first_name}", firstName);
+      // Fall back to generic admin-set message
+      const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, "welcome_message"));
+      if (row?.value) return row.value.replace("{first_name}", firstName);
+    } catch { /* fall through */ }
+  }
+  return BOT_MSG[lang].welcome_default.replace("{first_name}", firstName);
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -374,11 +445,15 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   const firstName: string = from.first_name || "Miner";
   const isAdmin = adminId > 0 && from.id === adminId;
 
-  // Track the user in DB (best-effort)
-  void upsertUser({ id: from.id, first_name: from.first_name, username: from.username });
+  // Track the user in DB (best-effort) — language_code seeds the initial language preference
+  void upsertUser({ id: from.id, first_name: from.first_name, username: from.username, language_code: from.language_code });
 
   try {
     if (text === "/start" || text.startsWith("/start ")) {
+      // Resolve user's language (DB → Telegram lang_code → default)
+      const lang = await getUserLanguage(from.id, from.language_code);
+      const msgs = BOT_MSG[lang];
+
       // 1. Check mandatory channel subscriptions
       const missing = await getMissingChannels(token, from.id);
       if (missing.length > 0) {
@@ -388,27 +463,24 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
         await sendMessage(
           token,
           chat_id,
-          `⚠️ <b>يجب عليك الانضمام للقنوات التالية أولاً:</b>\n\n${channelList}\n\n` +
-            `بعد الانضمام، اضغط /start مجدداً للمتابعة.`,
+          msgs.missing_channels.replace("{channels}", channelList),
         );
         res.status(200).json({ ok: true });
         return;
       }
 
-      // 2. Welcome message + open button in one message
-      const welcomeText = await getWelcomeMessage(firstName);
+      // 2. Localized welcome message + open button
+      const welcomeText = await getLocalizedWelcomeMessage(firstName, lang);
       await sendMessage(token, chat_id, welcomeText, {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "⛏️ Open GramMiner", web_app: { url: appUrl || "https://your-app.vercel.app" } }],
+            [{ text: msgs.open_button, web_app: { url: appUrl || "https://your-app.vercel.app" } }],
           ],
         },
       });
     } else if (text === "/balance") {
-      await sendMessage(
-        token, chat_id,
-        `💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!`,
-      );
+      const lang = await getUserLanguage(from.id, from.language_code);
+      await sendMessage(token, chat_id, BOT_MSG[lang].balance);
     } else if (text === "/admin") {
       if (isAdmin) {
         await sendMessage(token, chat_id, `👑 <b>لوحة تحكم GramMiner</b>\n\nاختر من القائمة:`, {
