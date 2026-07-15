@@ -14,9 +14,10 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
     return;
   }
 
-  const token = process.env["BOT_TOKEN"];
+  // Accept either BOT_TOKEN or TELEGRAM_BOT_TOKEN, matching getBotConfig() in routes/telegram.ts
+  const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
   if (!token) {
-    res.status(503).json({ error: "BOT_TOKEN env var not set" });
+    res.status(503).json({ error: "BOT_TOKEN / TELEGRAM_BOT_TOKEN env var not set" });
     return;
   }
 
