@@ -2,9 +2,8 @@ const { createHmac } = require('node:crypto');
 const { Pool }       = require('pg');
 
 const TOKEN    = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
-const ADMIN_ID = Number(process.env.ADMIN_ID || 0);
+const MAX_CLAIM = 100_000; // sanity cap per claim
 
-// Lazy pool — created once per cold start
 let pool = null;
 function getPool() {
   if (!pool && process.env.DATABASE_URL) {
@@ -17,7 +16,6 @@ function getPool() {
   return pool;
 }
 
-/** Verifies Telegram WebApp initData (HMAC-SHA256). Returns user or null. */
 function verifyInitData(initData) {
   try {
     const params = new URLSearchParams(initData);
@@ -36,7 +34,6 @@ function verifyInitData(initData) {
     if (computed !== hash) return null;
 
     const authDate = Number(params.get('auth_date'));
-    // Reject tokens older than 24 h
     if (!authDate || Date.now() / 1000 - authDate > 86_400) return null;
 
     const userRaw = params.get('user');
@@ -45,22 +42,6 @@ function verifyInitData(initData) {
   } catch {
     return null;
   }
-}
-
-/** Upserts user into gm_users; returns their persisted balance. */
-async function upsertUser(db, user) {
-  const { rows } = await db.query(
-    `INSERT INTO gm_users (telegram_id, first_name, last_name, username, last_active_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (telegram_id) DO UPDATE
-       SET first_name    = EXCLUDED.first_name,
-           last_name     = EXCLUDED.last_name,
-           username      = EXCLUDED.username,
-           last_active_at = NOW()
-     RETURNING balance`,
-    [user.id, user.first_name ?? null, user.last_name ?? null, user.username ?? null],
-  );
-  return rows[0]?.balance ?? 0;
 }
 
 module.exports = async function handler(req, res) {
@@ -73,9 +54,13 @@ module.exports = async function handler(req, res) {
 
   const body     = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {});
   const initData = body.initData;
+  const amount   = Number(body.amount);
 
   if (!initData || typeof initData !== 'string') {
     return res.status(400).json({ error: 'initData is required' });
+  }
+  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_CLAIM) {
+    return res.status(400).json({ error: 'Invalid amount' });
   }
 
   const user = verifyInitData(initData);
@@ -83,25 +68,32 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid or expired Telegram initData' });
   }
 
-  const isAdmin = ADMIN_ID > 0 && user.id === ADMIN_ID;
-
-  // Try to persist / fetch balance from DB; gracefully degrade if DB unavailable
-  let balance = 0;
-  try {
-    const db = getPool();
-    if (db) balance = await upsertUser(db, user);
-  } catch (err) {
-    console.error('DB upsert failed:', err?.message);
+  const db = getPool();
+  if (!db) {
+    return res.status(503).json({ error: 'Database not available' });
   }
 
-  return res.status(200).json({
-    user: {
-      id:         user.id,
-      first_name: user.first_name  ?? null,
-      last_name:  user.last_name   ?? null,
-      username:   user.username    ?? null,
-      balance,
-    },
-    isAdmin,
-  });
+  try {
+    // Ensure the user row exists first (first-time claimer who skipped /auth)
+    await db.query(
+      `INSERT INTO gm_users (telegram_id, first_name, last_name, username, last_active_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (telegram_id) DO UPDATE SET last_active_at = NOW()`,
+      [user.id, user.first_name ?? null, user.last_name ?? null, user.username ?? null],
+    );
+
+    // Add the claimed amount to their balance
+    const { rows } = await db.query(
+      `UPDATE gm_users
+       SET balance = balance + $2, last_active_at = NOW()
+       WHERE telegram_id = $1
+       RETURNING balance`,
+      [user.id, amount],
+    );
+
+    return res.status(200).json({ balance: rows[0]?.balance ?? amount });
+  } catch (err) {
+    console.error('Claim DB error:', err?.message);
+    return res.status(500).json({ error: 'Failed to persist claim' });
+  }
 };
