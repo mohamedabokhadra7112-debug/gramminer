@@ -28,35 +28,49 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
+
+    // ── Step 1: show the real name IMMEDIATELY from initDataUnsafe ──────────
+    // This is always available inside Telegram and requires no server round-trip.
+    // The user sees their real name right away, even before the server responds.
+    const unsafeUser = tg?.initDataUnsafe?.user;
+    if (unsafeUser?.id) {
+      setUser({
+        id:         unsafeUser.id,
+        first_name: unsafeUser.first_name,
+        last_name:  unsafeUser.last_name,
+        username:   unsafeUser.username,
+        balance:    0,
+      });
+    }
+
+    // ── Step 2: verify server-side and fetch the persisted DB balance ────────
     const initData = tg?.initData;
 
     if (!initData) {
-      // Not running inside Telegram (e.g. opened directly in a browser) —
-      // fall back to whatever unsigned info Telegram exposes, if any.
-      const fallback = tg?.initDataUnsafe?.user;
-      setUser(fallback?.id ? { id: fallback.id, first_name: fallback.first_name, username: fallback.username } : null);
+      // Not running inside Telegram (e.g. browser preview) — nothing more to do.
       setIsLoading(false);
       return;
     }
 
-    // Hits the Backend's sync/login endpoint: verifies initData server-side,
-    // registers the user on first sight (0 GMR) or refreshes their stored
-    // name, and returns their persisted balance so the UI never shows a
-    // stale "Miner" placeholder for a returning user.
     fetch(`${API_BASE}/api/telegram/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ initData }),
     })
-      .then(res => (res.ok ? res.json() : null))
+      .then(res => (res.ok ? res.json() : Promise.reject(`HTTP ${res.status}`)))
       .then(data => {
         if (data?.user) {
+          // Overwrite with the server-verified user + real DB balance
           setUser(data.user);
           setIsVerified(true);
           setIsAdmin(data.isAdmin === true);
         }
       })
-      .catch(() => {})
+      .catch(err => {
+        // Auth call failed — keep showing the initDataUnsafe name (set in Step 1)
+        // so the user always sees their real name, never "Miner".
+        console.warn('Telegram auth sync failed (showing local name):', err);
+      })
       .finally(() => setIsLoading(false));
   }, []);
 
