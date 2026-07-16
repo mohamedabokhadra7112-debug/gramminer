@@ -12,8 +12,11 @@ function getAdminId(): number {
 function getBotConfig() {
   // Accept either BOT_TOKEN or TELEGRAM_BOT_TOKEN for backwards compatibility
   const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
-  const appUrl = process.env["APP_URL"];
-  return { token, appUrl };
+  // APP_URL  = the API server's own public URL — used to register the webhook
+  // MINI_APP_URL = the frontend Mini App URL — used in the /start button (web_app)
+  const appUrl    = process.env["APP_URL"];
+  const miniAppUrl = process.env["MINI_APP_URL"] ?? appUrl;
+  return { token, appUrl, miniAppUrl };
 }
 
 // Simple in-memory cache for avatar file paths
@@ -458,7 +461,7 @@ router.get("/telegram/webhookinfo", async (_req, res) => {
 router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   logger.debug({ path: req.path, hasBody: !!req.body }, "Telegram webhook received");
 
-  const { token, appUrl } = getBotConfig();
+  const { token, appUrl, miniAppUrl } = getBotConfig();
   logger.debug(
     {
       tokenPresent: !!token,
@@ -612,7 +615,7 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       await sendMessage(token, chat_id, welcomeText, {
         reply_markup: {
           inline_keyboard: [
-            [{ text: msgs.open_button, web_app: { url: appUrl || "https://gramminer-api-server-nine.vercel.app/" } }],
+            [{ text: msgs.open_button, web_app: { url: miniAppUrl || "https://gramminer-api-server-nine.vercel.app/" } }],
           ],
         },
       });
