@@ -232,7 +232,7 @@ const BOT_MSG: Record<"ar" | "en", Record<string, string>> = {
     missing_channels: "⚠️ <b>You must join the following channels first:</b>\n\n{channels}\n\nAfter joining, press /start again to continue.",
     open_button:      "⛏️ Open GramMiner",
     balance:          "💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!",
-    welcome_default:  "👋 Welcome to GramMiner, {first_name}!\n\n💵 Start mining GMR by tapping the coin!\n🏆 Compete with friends and earn rewards!\n\n👇 Press the button below to start:",
+    welcome_default:  "<tg-emoji emoji-id=\"5339536521009571338\">👋</tg-emoji> Welcome to GramMiner, {first_name}!\n\n<tg-emoji emoji-id=\"5409048419211682843\">💵</tg-emoji> Start mining GMR by tapping the coin!\n<tg-emoji emoji-id=\"5299015076529872050\">🏆</tg-emoji> Compete with friends and earn rewards!\n\n<tg-emoji emoji-id=\"5852805286342957224\">👇</tg-emoji> Press the button below to start:",
   },
 };
 
