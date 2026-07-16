@@ -1,6 +1,7 @@
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const API = `https://api.telegram.org/bot${TOKEN}`;
 const ADMIN_ID = 868999453;
+const APP_URL = 'https://grammer-api-server-nine.vercel.app';
 
 async function sendMessage(chat_id, text, extra = {}) {
   await fetch(`${API}/sendMessage`, {
@@ -10,10 +11,15 @@ async function sendMessage(chat_id, text, extra = {}) {
   });
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(200).json({ ok: true });
 
-  const update = req.body;
+  let update = req.body;
+  if (typeof update === 'string') {
+    try { update = JSON.parse(update); } catch { return res.status(200).json({ ok: true }); }
+  }
+  if (!update) return res.status(200).json({ ok: true });
+
   const msg = update.message;
   if (!msg) return res.status(200).json({ ok: true });
 
@@ -22,7 +28,6 @@ export default async function handler(req, res) {
   const name = msg.from?.first_name || 'Miner';
   const isAdmin = msg.from?.id === ADMIN_ID;
 
-  // =================== أوامر عامة ===================
   if (text === '/start') {
     await sendMessage(chat_id,
       `⛏️ <b>Welcome to GramMiner, ${name}!</b>\n\n` +
@@ -39,7 +44,7 @@ export default async function handler(req, res) {
         reply_markup: {
           inline_keyboard: [[{
             text: '⛏️ Open GramMiner',
-            web_app: { url: 'https://grammer-api-server-nine.vercel.app' }
+            web_app: { url: APP_URL }
           }]]
         }
       }),
@@ -54,7 +59,6 @@ export default async function handler(req, res) {
     );
   }
 
-  // =================== أوامر الأدمن ===================
   else if (isAdmin && text === '/admin') {
     await sendMessage(chat_id,
       `👑 <b>Admin Panel — GramMiner</b>\n\n` +
@@ -89,4 +93,4 @@ export default async function handler(req, res) {
   }
 
   return res.status(200).json({ ok: true });
-}
+};

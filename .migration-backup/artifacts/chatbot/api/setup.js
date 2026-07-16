@@ -1,21 +1,23 @@
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const APP_URL = process.env.APP_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (!TOKEN) return res.status(400).json({ error: 'TELEGRAM_BOT_TOKEN not set' });
+
+  const APP_URL =
+    process.env.APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+
   if (!APP_URL) return res.status(400).json({ error: 'APP_URL not set' });
 
-  // Set webhook
   const webhookUrl = `${APP_URL}/api/webhook`;
-  const r = await fetch(`https://api.telegram.org/bot${TOKEN}/setWebhook`, {
+
+  const webhookRes = await fetch(`https://api.telegram.org/bot${TOKEN}/setWebhook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: webhookUrl }),
+    body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message'] }),
   });
-  const data = await r.json();
+  const webhookData = await webhookRes.json();
 
-  // Set bot commands
   await fetch(`https://api.telegram.org/bot${TOKEN}/setMyCommands`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -23,9 +25,9 @@ export default async function handler(req, res) {
       commands: [
         { command: 'start', description: '🚀 Open GramMiner' },
         { command: 'balance', description: '💰 Check your balance' },
-      ]
+      ],
     }),
   });
 
-  return res.status(200).json({ ok: true, webhook: data, webhookUrl });
-}
+  return res.status(200).json({ ok: true, webhook: webhookData, webhookUrl });
+};
