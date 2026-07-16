@@ -39,7 +39,7 @@ export default async function handler(req, res) {
         reply_markup: {
           inline_keyboard: [[{
             text: '⛏️ Open GramMiner',
-            web_app: { url: process.env.APP_URL || 'https://your-app.vercel.app' }
+            web_app: { url: 'https://grammer-api-server-nine.vercel.app' }
           }]]
         }
       }),

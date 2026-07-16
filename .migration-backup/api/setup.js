@@ -1,5 +1,6 @@
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const APP_URL = process.env.APP_URL;
+const APP_URL = process.env.APP_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
 
 export default async function handler(req, res) {
   if (!TOKEN) return res.status(400).json({ error: 'TELEGRAM_BOT_TOKEN not set' });

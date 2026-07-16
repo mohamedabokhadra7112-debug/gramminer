@@ -7,7 +7,6 @@ export default function Friends() {
   const { referralCode, referralCount, referralBalance } = useWallet();
   const [copied, setCopied] = useState(false);
 
-  const appUrl = 'https://gramminer-api-server-nine.vercel.app';
   const referralLink = `https://t.me/GramBot?start=${referralCode}`;
 
   const handleCopy = () => {
