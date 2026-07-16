@@ -13,6 +13,7 @@ import { WalletProvider } from './context/WalletContext';
 import { TelegramUserProvider } from './context/TelegramUserContext';
 import { useTelegramUser } from './context/TelegramUserContext';
 import { LanguageProvider } from './context/LanguageContext';
+import { CoinsProvider } from './context/CoinsContext';
 import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 
 const queryClient = new QueryClient();
@@ -91,13 +92,15 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TelegramUserProvider>
           <AppWithLanguage>
-            <WalletProvider>
-              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-                <div className="min-h-screen bg-black flex items-center justify-center">
-                  <Router />
-                </div>
-              </WouterRouter>
-            </WalletProvider>
+            <CoinsProvider>
+              <WalletProvider>
+                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+                  <div className="min-h-screen bg-black flex items-center justify-center">
+                    <Router />
+                  </div>
+                </WouterRouter>
+              </WalletProvider>
+            </CoinsProvider>
           </AppWithLanguage>
         </TelegramUserProvider>
       </QueryClientProvider>
