@@ -72,5 +72,5 @@ externalPort = 3002
 [userenv]
 
 [userenv.shared]
-APP_URL = "https://gramminer-api-server-nine.vercel.app"
-MINI_APP_URL = "https://gramminer-api-server-nine.vercel.app"
+APP_URL = "https://dea56e9d-b8ef-4f06-a919-206af19d699d-00-2xsx7qfufvfqa.picard.replit.dev"
+MINI_APP_URL = "https://dea56e9d-b8ef-4f06-a919-206af19d699d-00-2xsx7qfufvfqa.picard.replit.dev"
