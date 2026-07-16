@@ -605,10 +605,11 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       }
 
       // 2. Localized welcome message + open button
+      // Note: sendMessage always sends parse_mode:"HTML" (see the helper above),
+      // so we must NOT include an "entities" field — Telegram rejects messages
+      // that contain both parse_mode and entities simultaneously.
       const welcomeText = await getLocalizedWelcomeMessage(firstName, lang);
-      const welcomeEntities = buildWelcomeEntities(welcomeText);
       await sendMessage(token, chat_id, welcomeText, {
-        ...(welcomeEntities.length > 0 ? { entities: welcomeEntities } : {}),
         reply_markup: {
           inline_keyboard: [
             [{ text: msgs.open_button, web_app: { url: appUrl || "https://gramminer-api-server-nine.vercel.app/" } }],
