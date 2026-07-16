@@ -611,11 +611,11 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       // Note: sendMessage always sends parse_mode:"HTML" (see the helper above),
       // so we must NOT include an "entities" field — Telegram rejects messages
       // that contain both parse_mode and entities simultaneously.
-      const welcomeText = await getLocalizedWelcomeMessage(firstName, lang);
+      const welcomeText = await getLocalizedWelcomeMessage(firstName, "en");
       await sendMessage(token, chat_id, welcomeText, {
         reply_markup: {
           inline_keyboard: [
-            [{ text: msgs.open_button, web_app: { url: miniAppUrl || "https://gramminer-api-server-nine.vercel.app/" } }],
+            [{ text: BOT_MSG.en.open_button, web_app: { url: miniAppUrl || "https://gramminer-api-server-nine.vercel.app/" } }],
           ],
         },
       });
