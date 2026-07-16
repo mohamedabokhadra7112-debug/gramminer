@@ -3,26 +3,24 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
-import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
+const isReplit = process.env.REPL_ID !== undefined;
+const isProduction = process.env.NODE_ENV === 'production';
 
-// PORT is only needed for the dev server (Replit). Vercel manages its own
-// port during static builds, so we fall back to 3000 when it's not set.
+// PORT is only needed for the dev server (Replit).
 const rawPort = process.env.PORT;
 const port = rawPort ? Number(rawPort) : 3000;
 
 // BASE_PATH defaults to '/' for Vercel / any host that serves from root.
-// Replit injects its own prefix via this variable.
 const basePath = process.env.BASE_PATH ?? '/';
 
-export default defineConfig({
-  base: basePath,
-  plugins: [
+export default defineConfig(async () => {
+  const plugins = [
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== 'production' &&
-    process.env.REPL_ID !== undefined
+    // Replit-only plugins — never loaded on Vercel (production build)
+    ...(!isProduction && isReplit
       ? [
+          (await import('@replit/vite-plugin-runtime-error-modal')).default(),
           await import('@replit/vite-plugin-cartographer').then((m) =>
             m.cartographer({
               root: path.resolve(import.meta.dirname, '..'),
@@ -33,42 +31,45 @@ export default defineConfig({
           ),
         ]
       : []),
-  ],
-  resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, 'src'),
-      '@assets': path.resolve(
-        import.meta.dirname,
-        '..',
-        '..',
-        'attached_assets',
-      ),
+  ];
+
+  return {
+    base: basePath,
+    plugins,
+    resolve: {
+      alias: {
+        '@': path.resolve(import.meta.dirname, 'src'),
+        // @assets only exists in Replit; on Vercel use an empty stub
+        '@assets': isReplit
+          ? path.resolve(import.meta.dirname, '..', '..', 'attached_assets')
+          : path.resolve(import.meta.dirname, 'src', 'assets'),
+      },
+      dedupe: ['react', 'react-dom'],
     },
-    dedupe: ['react', 'react-dom'],
-  },
-  root: path.resolve(import.meta.dirname),
-  build: {
-    outDir: path.resolve(import.meta.dirname, 'dist/public'),
-    emptyOutDir: true,
-  },
-  server: {
-    port,
-    strictPort: true,
-    host: '0.0.0.0',
-    allowedHosts: true,
-    fs: {
-      strict: true,
+    root: path.resolve(import.meta.dirname),
+    build: {
+      outDir: path.resolve(import.meta.dirname, 'dist/public'),
+      emptyOutDir: true,
     },
-    proxy: {
-      '/api': {
-        target: `http://localhost:${process.env.API_PORT ?? '8080'}`,
-        changeOrigin: true,
+    server: {
+      port,
+      strictPort: true,
+      host: '0.0.0.0',
+      allowedHosts: true,
+      fs: {
+        strict: true,
+      },
+      proxy: {
+        '/api': {
+          target: `http://localhost:${process.env.API_PORT ?? '8080'}`,
+          changeOrigin: true,
+        },
       },
     },
-  },
-  preview: {
-    port,
-    host: '0.0.0.0',
-    allowedHosts: true,
-  },
+    preview: {
+      port,
+      host: '0.0.0.0',
+      allowedHosts: true,
+    },
+  };
 });
