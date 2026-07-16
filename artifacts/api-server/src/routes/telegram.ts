@@ -227,11 +227,48 @@ const BOT_MSG: Record<"ar" | "en", Record<string, string>> = {
   },
   en: {
     missing_channels: "⚠️ <b>You must join the following channels first:</b>\n\n{channels}\n\nAfter joining, press /start again to continue.",
-    open_button:      "⛏️ Open GramMiner",
+    open_button:      "🚀 Open",
     balance:          "💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!",
-    welcome_default:  "⛏️ <b>Welcome to GramMiner, {first_name}!</b>\n\n💰 Start mining GMR by tapping the coin!\n🏆 Compete with friends and earn rewards!\n\n👇 Press the button below to start:",
+    welcome_default:  "👋 Welcome to GramMiner, {first_name}!\n\n💵 Start mining GMR by tapping the coin!\n🏆 Compete with friends and earn rewards!\n\n👇 Press the button below to start:",
   },
 };
+
+/**
+ * Counts UTF-16 code units in a string — the unit Telegram uses for entity
+ * offsets. Characters in the BMP (≤ U+FFFF) cost 1 unit; supplementary chars
+ * (most emoji, > U+FFFF) cost 2 units (surrogate pair).
+ */
+function utf16Len(s: string): number {
+  let n = 0;
+  for (const ch of s) { n += (ch.codePointAt(0)! > 0xFFFF) ? 2 : 1; }
+  return n;
+}
+
+/**
+ * Scans the welcome text and returns custom_emoji entities for the four
+ * known emoji, computing their exact UTF-16 offsets on the fly.
+ * Regular emoji in the text act as a fallback for non-Premium users;
+ * the entities override the display for Premium users.
+ */
+function buildWelcomeEntities(
+  text: string,
+): { type: string; offset: number; length: number; custom_emoji_id: string }[] {
+  const CUSTOM_IDS: Record<string, string> = {
+    "👋": "5339536521009571338",
+    "💵": "5409048419211682843",
+    "🏆": "5299015076529872050",
+    "👇": "5852805286342957224",
+  };
+  const entities: { type: string; offset: number; length: number; custom_emoji_id: string }[] = [];
+  let offset = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    const id = CUSTOM_IDS[ch];
+    if (id) entities.push({ type: "custom_emoji", offset, length: 2, custom_emoji_id: id });
+    offset += cp > 0xFFFF ? 2 : 1;
+  }
+  return entities;
+}
 
 /** Returns the localized welcome message: tries language-specific DB key first. */
 async function getLocalizedWelcomeMessage(
@@ -569,10 +606,12 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
 
       // 2. Localized welcome message + open button
       const welcomeText = await getLocalizedWelcomeMessage(firstName, lang);
+      const welcomeEntities = buildWelcomeEntities(welcomeText);
       await sendMessage(token, chat_id, welcomeText, {
+        ...(welcomeEntities.length > 0 ? { entities: welcomeEntities } : {}),
         reply_markup: {
           inline_keyboard: [
-            [{ text: msgs.open_button, web_app: { url: appUrl || "https://your-app.vercel.app" } }],
+            [{ text: msgs.open_button, web_app: { url: appUrl || "https://gramminer-api-server-nine.vercel.app/" } }],
           ],
         },
       });
