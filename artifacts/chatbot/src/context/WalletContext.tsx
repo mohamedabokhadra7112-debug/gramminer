@@ -32,12 +32,22 @@ function getLsKey(suffix: string): string {
 function getStoredBalance(): number {
   try {
     const v = localStorage.getItem(getLsKey('holding_balance'));
-    return v !== null ? Number(v) : 0;
+    if (v === null) return 0;
+    const n = Number(v);
+    // Guard: Number("NaN") = NaN, Number("null") = NaN, Number("undefined") = NaN
+    // isFinite rejects NaN, +Infinity, -Infinity — all invalid balances.
+    return Number.isFinite(n) ? n : 0;
   } catch { return 0; }
 }
 
+/** Write-through helper. Silently drops writes where val is not a valid finite
+ *  number — this is the single choke-point that prevents "NaN" / "null" /
+ *  "undefined" strings from ever entering localStorage and becoming permanent. */
 function storeBalance(val: number) {
-  try { localStorage.setItem(getLsKey('holding_balance'), String(val)); } catch {}
+  try {
+    if (!Number.isFinite(val)) return; // never write NaN / Infinity
+    localStorage.setItem(getLsKey('holding_balance'), String(val));
+  } catch {}
 }
 
 function getStoredWallet(): string | null {
@@ -73,10 +83,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
-  // Write-through: state + localStorage in sync
+  // Write-through: state + localStorage in sync.
+  // Sanitises the value before writing: NaN / Infinity can slip in from a
+  // null/undefined API response (typeof null === 'object', typeof NaN === 'number')
+  // so we clamp to 0 here as the single choke-point for the entire context.
   const setHoldingWallet = useCallback((val: number) => {
-    storeBalance(val);
-    setHoldingWalletRaw(val);
+    const safe = Number.isFinite(val) ? val : 0;
+    storeBalance(safe);
+    setHoldingWalletRaw(safe);
   }, []);
 
   const connectWallet = useCallback((address: string) => {
@@ -97,16 +111,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const MAX_UNSYNCED_GRAM = 10; // max plausible unsynced offline earnings
   useEffect(() => {
     if (seededFromServer.current) return;
-    if (!isVerified || typeof user?.balance !== 'number') return;
+    if (!isVerified) return;
+    // typeof NaN === 'number' is TRUE — we must use isFinite, not typeof.
+    const serverBalance = Number(user?.balance);
+    if (!Number.isFinite(serverBalance)) return;
     seededFromServer.current = true;
-    const serverBalance = user.balance;
-    const storedBalance = getStoredBalance();
+    const storedBalance = getStoredBalance(); // already guarded → 0 if NaN
     const diff = storedBalance - serverBalance;
     const safeBalance = diff > 0 && diff <= MAX_UNSYNCED_GRAM
       ? storedBalance   // small legitimate offline gap — preserve it
       : serverBalance;  // server wins (stored value is stale or corrupted)
-    setHoldingWallet(safeBalance);
-    storeBalance(safeBalance); // immediately correct localStorage
+    setHoldingWallet(safeBalance); // setHoldingWallet itself is NaN-safe
   }, [isVerified, user?.balance, setHoldingWallet]);
 
   // Load referrals from server
@@ -153,16 +168,26 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
    * Used by both manual claimEarnings and the background auto-save.
    */
   const persistEarnings = useCallback(async (amount: number): Promise<void> => {
-    if (amount <= 0 || isSavingRef.current) return;
+    // Guard: reject NaN / non-positive amounts before doing any work.
+    if (!Number.isFinite(amount) || amount <= 0 || isSavingRef.current) return;
     isSavingRef.current = true;
     try {
-      const { balance } = await telegramApiPost<{ balance: number }>('/telegram/claim', { amount });
-      setHoldingWallet(balance);
+      const data = await telegramApiPost<{ balance: number }>('/telegram/claim', { amount });
+      // The server returns the new cumulative balance.  Coerce to number and
+      // validate — a null/undefined response would produce NaN via Number().
+      const serverBalance = Number(data?.balance);
+      if (Number.isFinite(serverBalance)) {
+        setHoldingWallet(serverBalance);
+      } else {
+        // Unexpected server payload — fall back to local accumulation.
+        setHoldingWallet(getStoredBalance() + amount);
+      }
       setSessionEarnings(0);
     } catch {
-      // API unavailable — keep earnings in localStorage so they survive a refresh.
+      // API unavailable — accumulate locally so earnings survive a refresh.
+      // Both operands are safe: getStoredBalance() → finite, amount → finite (checked above).
       const newBalance = getStoredBalance() + amount;
-      setHoldingWallet(newBalance);
+      setHoldingWallet(newBalance); // setHoldingWallet is NaN-safe
       setSessionEarnings(0);
     } finally {
       isSavingRef.current = false;

@@ -20,8 +20,12 @@ export function cn(...inputs: ClassValue[]) {
  * every platform), with a try/catch in case Intl is absent.
  */
 export function formatGram(val: number, decimals = 4): string {
+  // Last-resort guard: NaN / Infinity must never reach the display layer.
+  // All callers should already pass a finite number, but this catches any
+  // future slip (e.g. a null API response coerced with Number()).
+  const safe = Number.isFinite(val) ? val : 0;
   const factor  = Math.pow(10, decimals);
-  const rounded = Math.round(val * factor) / factor;
+  const rounded = Math.round(safe * factor) / factor;
   try {
     return rounded.toLocaleString('en-US', {
       minimumFractionDigits: decimals,

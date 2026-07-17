@@ -20,8 +20,13 @@ export default function Dashboard() {
   const userInitial = userName[0].toUpperCase();
   const showAvatar  = Boolean(avatarUrl) && !avatarFailed;
 
-  // Round before summing to prevent floating-point drift from corrupting the display
-  const totalAssets = Math.round((holdingWallet + poolWallet + sessionEarnings) * 1_000_000) / 1_000_000;
+  // Each operand is clamped to 0 if non-finite before summing.
+  // setHoldingWallet already guards NaN, but we add a second layer here so
+  // a stale React render before the guard fires never flashes "NaN gram".
+  const hw = Number.isFinite(holdingWallet)   ? holdingWallet   : 0;
+  const pw = Number.isFinite(poolWallet)       ? poolWallet       : 0;
+  const se = Number.isFinite(sessionEarnings)  ? sessionEarnings  : 0;
+  const totalAssets = Math.round((hw + pw + se) * 1_000_000) / 1_000_000;
 
   const shortAddress = walletAddress
     ? walletAddress.slice(0, 2) + '...' + walletAddress.slice(-2)
