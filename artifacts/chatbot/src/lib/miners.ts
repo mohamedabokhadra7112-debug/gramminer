@@ -42,11 +42,11 @@ export function getUpgradeCost(baseCost: number, level: number): number {
 
 /**
  * Daily GRAM reward for one miner at a given level.
- * baseCost is in coins → divide by GRAM_PER_COIN to get the gram value,
- * then apply the daily percentage and multiply by level.
+ * Formula: baseCost × dailyPct × level  (result is in gram)
+ * e.g. Stone Collector L4: 10 × 0.05 × 4 = 2.00 gram/day
  */
 export function getDailyReward(baseCost: number, pct: number, level: number): number {
-  return (baseCost / GRAM_PER_COIN) * pct * level;
+  return baseCost * pct * level;
 }
 
 /** Per-user localStorage key — prevents cross-account data bleed on shared devices */

@@ -119,14 +119,16 @@ router.post("/tasks/complete", async (req, res): Promise<void> => {
       [user.id, task.id],
     );
 
-    // Credit reward
+    // Credit reward as coins (not gram — gram comes only from mining)
+    await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0").catch(() => {});
+
     const [updated] = await db
       .update(usersTable)
-      .set({ balance: sql`${usersTable.balance} + ${task.reward}`, lastActiveAt: new Date() })
+      .set({ coins: sql`${usersTable.coins} + ${Math.round(task.reward)}`, lastActiveAt: new Date() })
       .where(eq(usersTable.telegramId, user.id))
-      .returning({ balance: usersTable.balance });
+      .returning({ coins: usersTable.coins });
 
-    res.json({ ok: true, reward: task.reward, balance: updated?.balance ?? 0 });
+    res.json({ ok: true, reward: Math.round(task.reward), coins: updated?.coins ?? 0 });
   } catch (err) {
     logger.error({ err }, "POST /tasks/complete failed");
     res.status(500).json({ error: "Internal error" });

@@ -88,10 +88,10 @@ export default function Tasks() {
 
     setCompleting(task.id);
     try {
-      const data = await telegramApiPost<{ ok: boolean; reward: number; balance: number }>('/tasks/complete', { taskId: task.id });
+      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks/complete', { taskId: task.id });
       if (data.ok) {
         setDone(prev => new Set(prev).add(task.id));
-        setFeedback({ id: task.id, msg: `✅ +${data.reward} gram`, ok: true });
+        setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }
     } catch (e: unknown) {
@@ -118,10 +118,10 @@ export default function Tasks() {
     // Second press on a channel task — try to verify membership
     setCompleting(task.id);
     try {
-      const data = await telegramApiPost<{ ok: boolean; reward: number; balance: number }>('/tasks/complete', { taskId: task.id });
+      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks/complete', { taskId: task.id });
       if (data.ok) {
         setDone(prev => new Set(prev).add(task.id));
-        setFeedback({ id: task.id, msg: `✅ +${data.reward} gram`, ok: true });
+        setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }
     } catch (e: unknown) {
@@ -202,7 +202,7 @@ export default function Tasks() {
                       <p className="text-xs text-primary/70 mt-0.5">📢 @{task.channelUsername}</p>
                     )}
                     <div className={`text-xs font-black mt-0.5 ${completed ? 'text-muted-foreground' : 'text-primary'}`}>
-                      +{task.reward} gram{task.isDaily ? ' · يومية' : ''}
+                      +{task.reward} coin{task.isDaily ? ' · يومية' : ''}
                     </div>
                   </div>
                 </div>
