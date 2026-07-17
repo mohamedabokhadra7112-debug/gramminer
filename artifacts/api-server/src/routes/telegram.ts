@@ -21,6 +21,28 @@ function getBotConfig() {
 
 // Simple in-memory cache for avatar file paths
 const avatarFilePathCache = new Map<number, { filePath: string | null; expiresAt: number }>();
+
+// ─── Earnings log schema (lazy, once per server start) ───────────────────────
+let earningsSchemaReady = false;
+async function ensureEarningsSchema(): Promise<void> {
+  if (earningsSchemaReady) return;
+  try {
+    const { pool } = await import("@workspace/db");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS gm_earnings_log (
+        id          serial PRIMARY KEY,
+        telegram_id bigint NOT NULL,
+        amount      double precision NOT NULL,
+        created_at  timestamp NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS gm_earnings_log_tg_ts
+       ON gm_earnings_log (telegram_id, created_at DESC)`,
+    );
+    earningsSchemaReady = true;
+  } catch { /* non-critical — table may already exist */ }
+}
 const AVATAR_CACHE_TTL_MS = 10 * 60 * 1000;
 
 async function sendMessage(
@@ -383,10 +405,53 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
       .set({ balance: sql`${usersTable.balance} + ${amount}`, lastActiveAt: new Date() })
       .where(eq(usersTable.telegramId, user.id))
       .returning({ balance: usersTable.balance });
+
+    // Log this claim for rolling 24-hour earnings tracking (fire-and-forget).
+    ensureEarningsSchema().then(async () => {
+      try {
+        const { pool } = await import("@workspace/db");
+        await pool.query(
+          "INSERT INTO gm_earnings_log (telegram_id, amount) VALUES ($1, $2)",
+          [user.id, amount],
+        );
+      } catch { /* non-critical */ }
+    });
+
     res.status(200).json({ balance: row?.balance ?? amount });
   } catch (err) {
     logger.error({ err, userId: user.id }, "Failed to persist claim");
     res.status(500).json({ error: "Failed to persist claim" });
+  }
+});
+
+// Returns the sum of all mining claims in the rolling last 24 hours for this user.
+router.get("/telegram/earnings/24h", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ earnings: 0 }); return; }
+
+  const initData = req.headers["x-init-data"];
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "x-init-data header required" }); return;
+  }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  try {
+    await ensureEarningsSchema();
+    const { pool } = await import("@workspace/db");
+    const result = await pool.query<{ earnings: string }>(
+      `SELECT COALESCE(SUM(amount), 0) AS earnings
+       FROM gm_earnings_log
+       WHERE telegram_id = $1
+         AND created_at > NOW() - INTERVAL '24 hours'`,
+      [user.id],
+    );
+    const earnings = parseFloat(result.rows[0]?.earnings ?? "0");
+    res.status(200).json({ earnings });
+  } catch (err) {
+    logger.error({ err, userId: user.id }, "GET /telegram/earnings/24h failed");
+    res.status(500).json({ earnings: 0 });
   }
 });
 

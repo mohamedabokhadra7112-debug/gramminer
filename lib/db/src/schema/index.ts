@@ -94,6 +94,16 @@ export const withdrawalsTable = pgTable("gm_withdrawals", {
   processedAt: timestamp("processed_at"),
 });
 
+// ─── Earnings log (rolling 24-hour tracking) ─────────────────────────────────
+// Each successful mining claim writes one row here so we can SUM(amount)
+// over the last 24 hours without touching the aggregate balance column.
+export const earningsLogTable = pgTable("gm_earnings_log", {
+  id: serial("id").primaryKey(),
+  telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+  amount: doublePrecision("amount").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export type User = typeof usersTable.$inferSelect;
 export type Task = typeof tasksTable.$inferSelect;
 export type Channel = typeof channelsTable.$inferSelect;

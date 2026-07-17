@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown } from 'lucide-react';
 import gramCoinImg from '@/assets/gram-coin.png';
+import { API_BASE, getInitData } from '@/lib/telegramApi';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, claimEarnings } = useWallet();
@@ -12,6 +13,7 @@ export default function Dashboard() {
   const { t } = useLanguage();
   const [showWallet, setShowWallet] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [earnings24h, setEarnings24h] = useState<number | null>(null);
 
   const userName = tgUser?.first_name || 'Miner';
   const userInitial = userName[0].toUpperCase();
@@ -22,6 +24,34 @@ export default function Dashboard() {
   const shortAddress = walletAddress
     ? walletAddress.slice(0, 2) + '...' + walletAddress.slice(-2)
     : null;
+
+  const fetch24hEarnings = useCallback(async () => {
+    const initData = getInitData();
+    if (!initData) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/telegram/earnings/24h`, {
+        headers: { 'x-init-data': initData },
+      });
+      if (res.ok) {
+        const data = await res.json() as { earnings?: number };
+        if (typeof data.earnings === 'number') {
+          setEarnings24h(data.earnings);
+        }
+      }
+    } catch { /* best-effort */ }
+  }, []);
+
+  // Fetch on mount
+  useEffect(() => { fetch24hEarnings(); }, [fetch24hEarnings]);
+
+  // Re-fetch whenever a claim finishes (isClaiming transitions true → false)
+  const prevIsClaiming = useRef(false);
+  useEffect(() => {
+    if (prevIsClaiming.current && !isClaiming) {
+      fetch24hEarnings();
+    }
+    prevIsClaiming.current = isClaiming;
+  }, [isClaiming, fetch24hEarnings]);
 
   return (
     <div className="min-h-full flex flex-col relative w-full">
@@ -70,10 +100,20 @@ export default function Dashboard() {
           {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} gram
         </div>
         <div className="flex gap-2 w-full max-w-sm">
+          {/* Holding wallet */}
           <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
             <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">{t('dashboard_holding_wallet')}</div>
             <div className="text-sm font-bold text-white">
               {holdingWallet.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} gram
+            </div>
+          </div>
+          {/* 24-hour earnings */}
+          <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
+            <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">{t('dashboard_24h_label')}</div>
+            <div className="text-sm font-bold text-success">
+              {earnings24h !== null
+                ? `+${earnings24h.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} gram`
+                : '—'}
             </div>
           </div>
         </div>

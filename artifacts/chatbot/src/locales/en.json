@@ -11,6 +11,7 @@
   "dashboard_holding_wallet": "HOLDING WALLET",
   "dashboard_claim": "CLAIM",
   "dashboard_claim_failed": "Couldn't save your claim. Please try again.",
+  "dashboard_24h_label": "24H EARNED",
 
   "miners_title": "UPGRADES",
   "miners_level": "LVL",
