@@ -958,6 +958,118 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   res.status(200).json({ ok: true });
 });
 
+// ─── Miners state persistence ─────────────────────────────────────────────────
+// The miners state (which miners the user owns and at what level) must live in
+// the database — not just localStorage — so it is the same on every device.
+//
+// Schema is created lazily (first request wins) following the lazy-migration
+// pattern used throughout this codebase.
+
+async function ensureMinersSchema(pool: import("pg").Pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gm_miners (
+      telegram_id   BIGINT  NOT NULL,
+      miner_id      INTEGER NOT NULL,
+      level         INTEGER NOT NULL DEFAULT 0,
+      last_claim_at BIGINT,
+      PRIMARY KEY   (telegram_id, miner_id)
+    )
+  `).catch(() => {});
+}
+
+// Load the authenticated user's miners state.
+router.post("/telegram/miners/load", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const initData = req.body?.initData;
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "initData required" }); return;
+  }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  const db = await getDb();
+  if (!db) { res.status(200).json({ levels: {}, lastClaimAt: null }); return; }
+
+  try {
+    const { pool } = await import("@workspace/db");
+    await ensureMinersSchema(pool);
+
+    const rows = await pool.query(
+      "SELECT miner_id, level, last_claim_at FROM gm_miners WHERE telegram_id=$1",
+      [user.id],
+    );
+
+    const levels: Record<number, number> = {};
+    let lastClaimAt: number | null = null;
+    for (const row of rows.rows) {
+      if ((row.level ?? 0) > 0) levels[row.miner_id as number] = row.level as number;
+      if (row.last_claim_at) lastClaimAt = Math.max(lastClaimAt ?? 0, Number(row.last_claim_at));
+    }
+
+    res.status(200).json({ levels, lastClaimAt });
+  } catch (err) {
+    logger.error({ err, userId: user.id }, "POST /telegram/miners/load error");
+    res.status(200).json({ levels: {}, lastClaimAt: null }); // soft-fail — client falls back to localStorage
+  }
+});
+
+// Persist the authenticated user's miners state.
+// Uses GREATEST() so the level can only go up — never accidentally downgraded.
+router.post("/telegram/miners/save", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const initData = req.body?.initData;
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "initData required" }); return;
+  }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  const { levels, lastClaimAt = null } = req.body as {
+    levels: Record<string, number>;
+    lastClaimAt?: number | null;
+  };
+
+  if (typeof levels !== "object" || levels === null || Array.isArray(levels)) {
+    res.status(400).json({ error: "levels must be an object" }); return;
+  }
+
+  const db = await getDb();
+  if (!db) { res.status(200).json({ ok: true }); return; } // soft-fail — client already has localStorage
+
+  try {
+    const { pool } = await import("@workspace/db");
+    await ensureMinersSchema(pool);
+
+    for (const [minerId, level] of Object.entries(levels)) {
+      const numId    = Number(minerId);
+      const numLevel = Number(level);
+      if (!Number.isInteger(numId) || numId < 1 || numId > 10) continue;
+      if (!Number.isInteger(numLevel) || numLevel < 0 || numLevel > 10) continue;
+
+      await pool.query(
+        `INSERT INTO gm_miners (telegram_id, miner_id, level, last_claim_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (telegram_id, miner_id)
+         DO UPDATE SET
+           level         = GREATEST(gm_miners.level, EXCLUDED.level),
+           last_claim_at = EXCLUDED.last_claim_at`,
+        [user.id, numId, numLevel, lastClaimAt ?? null],
+      );
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    logger.error({ err, userId: user.id }, "POST /telegram/miners/save error");
+    res.status(200).json({ ok: true }); // soft-fail
+  }
+});
+
 // Deducts coins from the user's coin balance (for miner purchases/upgrades).
 // Uses optimistic UI on the client; this endpoint is the authoritative source of truth.
 router.post("/telegram/coins/spend", async (req, res): Promise<void> => {
