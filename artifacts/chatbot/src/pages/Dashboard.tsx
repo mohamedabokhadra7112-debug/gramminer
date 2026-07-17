@@ -6,7 +6,7 @@ import { useMiners } from '@/context/MinersContext';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown } from 'lucide-react';
 import { formatGram } from '@/lib/utils';
-import gramLogoImg from '@assets/IMG_20260717_131358_656_1784283967558.jpg';
+import gramLogoImg from '@assets/logo_no_bg.png';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, claimEarnings } = useWallet();
@@ -127,8 +127,7 @@ export default function Dashboard() {
           <img
             src={gramLogoImg}
             alt="gram"
-            className="w-full h-full object-cover"
-            style={{ objectPosition: 'center 35%' }}
+            className="w-full h-full object-contain"
           />
         </div>
       </div>
