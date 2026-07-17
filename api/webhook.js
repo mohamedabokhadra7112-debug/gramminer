@@ -39,28 +39,21 @@ module.exports = async function handler(req, res) {
     const isAdmin = msg.from?.id === ADMIN_ID;
 
     if (text === '/start' || text.startsWith('/start ')) {
-      // Welcome message
+      // رسالة ترحيب واحدة مع زر فتح التطبيق مباشرة
       await sendMessage(
         chat_id,
         `⛏️ <b>Welcome to GramMiner, ${name}!</b>\n\n` +
-        `💰 Start mining GMR by tapping the coin!\n` +
+        `💰 Start mining gram by tapping the coin!\n` +
         `🏆 Compete with friends and earn rewards!\n\n` +
-        `👇 Press the button below to start:`
-      );
-      // Open Mini App button
-      await fetch(`${API}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id,
-          text: '🚀 Open GramMiner and start earning GMR!',
+        `👇 Press the button below to start:`,
+        {
           reply_markup: {
             inline_keyboard: [[
               { text: '⛏️ Open GramMiner', web_app: { url: APP_URL } },
             ]],
           },
-        }),
-      });
+        }
+      );
 
     } else if (text === '/balance') {
       await sendMessage(
