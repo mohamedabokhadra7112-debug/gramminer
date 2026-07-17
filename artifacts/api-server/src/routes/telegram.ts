@@ -447,6 +447,34 @@ router.get("/telegram/setup", async (_req, res) => {
   res.status(200).json({ ok: true, webhook: data, webhookUrl });
 });
 
+// Returns referral stats for the current user.
+router.get("/telegram/referrals", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const initData = req.headers["x-init-data"] as string | undefined;
+  if (!initData) { res.status(400).json({ error: "x-init-data required" }); return; }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  const db = await getDb();
+  if (!db) { res.json({ count: 0, reward: 0 }); return; }
+
+  try {
+    const { pool } = await import("@workspace/db");
+    await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS referred_by bigint").catch(() => {});
+    const result = await pool.query(
+      "SELECT COUNT(*) AS count FROM gm_users WHERE referred_by=$1",
+      [user.id],
+    );
+    const count = Number(result.rows[0]?.count ?? 0);
+    res.json({ count, reward: +(count * 0.01).toFixed(4) });
+  } catch {
+    res.json({ count: 0, reward: 0 });
+  }
+});
+
 // Returns current webhook info for diagnostics.
 router.get("/telegram/webhookinfo", async (_req, res) => {
   const { token } = getBotConfig();
@@ -588,6 +616,47 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   try {
     if (text === "/start" || text.startsWith("/start ")) {
       logger.debug({ chat_id, firstName }, "/start handler entered");
+
+      // ── Process referral code embedded in /start payload ──────────────────
+      // Format: /start GMR<referrerId>  e.g. /start GMR123456789
+      const startPayload = text.slice("/start".length).trim();
+      const referralMatch = startPayload.match(/^GMR(\d+)$/);
+      if (referralMatch) {
+        const referrerId = Number(referralMatch[1]);
+        if (referrerId && referrerId !== from.id) {
+          const db = await getDb();
+          if (db) {
+            try {
+              const { usersTable } = await import("@workspace/db");
+              const { eq, sql } = await import("drizzle-orm");
+              // Ensure referred_by column exists
+              const { pool } = await import("@workspace/db");
+              await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS referred_by bigint").catch(() => {});
+              // Only register referral if user is brand new (no referred_by set yet)
+              const [existing] = await db
+                .select({ referredBy: usersTable.referredBy })
+                .from(usersTable)
+                .where(eq(usersTable.telegramId, from.id));
+              if (existing && existing.referredBy == null) {
+                await db
+                  .update(usersTable)
+                  .set({ referredBy: referrerId })
+                  .where(eq(usersTable.telegramId, from.id));
+                // Credit the referrer
+                const referralReward = 0.01;
+                await db
+                  .update(usersTable)
+                  .set({ balance: sql`${usersTable.balance} + ${referralReward}` })
+                  .where(eq(usersTable.telegramId, referrerId));
+                logger.info({ from: from.id, referrerId, reward: referralReward }, "Referral processed");
+              }
+            } catch (e) {
+              logger.warn({ e }, "Referral processing failed (non-fatal)");
+            }
+          }
+        }
+      }
+
       // Resolve user's language (DB → Telegram lang_code → default)
       const lang = await getUserLanguage(from.id, from.language_code);
       const msgs = BOT_MSG[lang];

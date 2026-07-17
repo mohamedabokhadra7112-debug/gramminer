@@ -1,4 +1,4 @@
-import { Users, Copy, Share2, CheckCircle2 } from 'lucide-react';
+import { Users, Copy, Share2, CheckCircle2, RefreshCw } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
@@ -7,10 +7,11 @@ import { useState } from 'react';
 const BOT_USERNAME = 'GramCoin11_bot';
 
 export default function Friends() {
-  const { referralCode, referralCount, referralBalance } = useWallet();
+  const { referralCode, referralCount, referralBalance, refreshReferrals } = useWallet();
   const { user: tgUser } = useTelegramUser();
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const referralLink = `https://t.me/${BOT_USERNAME}?start=${tgUser?.id ?? referralCode}`;
 
@@ -31,6 +32,12 @@ export default function Friends() {
     }
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    refreshReferrals();
+    setTimeout(() => setRefreshing(false), 1500);
+  };
+
   const steps = [
     t('friends_step1'),
     t('friends_step2'),
@@ -45,8 +52,16 @@ export default function Friends() {
       {/* Header */}
       <div className="relative z-10 mb-5 flex items-center justify-between">
         <h1 className="text-3xl font-black text-white tracking-tight drop-shadow-lg">{t('friends_title')}</h1>
-        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
-          <Users className="text-primary w-6 h-6" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center border border-white/10 hover:bg-white/20 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 text-white ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+            <Users className="text-primary w-6 h-6" />
+          </div>
         </div>
       </div>
 
@@ -59,7 +74,6 @@ export default function Friends() {
         <div className="flex-1 rounded-2xl p-4 text-center border border-primary/30" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
           <div className="text-2xl font-black text-primary">{referralBalance.toFixed(4)}</div>
           <div className="text-xs text-white/70 mt-1 font-semibold">{t('friends_gmr_rewards')}</div>
-          <div className="text-[9px] text-primary/80 mt-0.5 font-bold">{t('friends_purchase_only')}</div>
         </div>
       </div>
 
@@ -133,7 +147,7 @@ export default function Friends() {
               <div key={i} className="border border-white/10 rounded-xl p-3 flex items-center justify-between" style={{ backgroundColor: 'rgba(0,0,0,0.50)' }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
-                    {String.fromCharCode(65 + i)}
+                    {String.fromCharCode(65 + (i % 26))}
                   </div>
                   <span className="text-sm text-white font-medium">{t('friends_friend_label')} {i + 1}</span>
                 </div>

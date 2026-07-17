@@ -3,7 +3,7 @@ import {
   Shield, BarChart3, MessageSquare, ClipboardList, Radio, DollarSign,
   Users, Plus, Trash2, Eye, EyeOff, Ban, Coins, AlertTriangle,
   ChevronDown, ChevronUp, Send, Wrench, Settings, Pickaxe, ArrowDownUp,
-  UserPlus, Search, Check, X,
+  UserPlus, Search, Check, X, ArrowUp,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -27,7 +27,8 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface Stats { totalUsers: number; blockedUsers: number; activeUsers: number }
-interface Task  { id: number; title: string; description: string; reward: number; isDaily: boolean; isHidden: boolean }
+interface Task  { id: number; title: string; description: string; reward: number; isDaily: boolean; isHidden: boolean; channelUsername?: string | null }
+interface Withdrawal { id: number; telegram_id: number; first_name: string | null; username: string | null; wallet_address: string; amount: number; status: string; created_at: string; tx_hash: string | null; rejection_reason: string | null }
 interface Channel { id: number; channelUsername: string; channelName: string }
 interface User { id: number; telegramId: number; username: string|null; firstName: string|null; lastName: string|null; balance: number; isBanned: boolean; restrictWithdrawal: boolean; blockedBot: boolean }
 interface Miner { id: number; name: string; baseCost: number; dailyPct: number; description: string }
@@ -258,7 +259,7 @@ function WelcomeSection() {
 // ─── 5. Tasks ──────────────────────────────────────────────────────────────
 function TasksSection() {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [form, setForm] = useState({ title: '', description: '', reward: '', isDaily: false });
+  const [form, setForm] = useState({ title: '', description: '', reward: '', isDaily: false, channelUsername: '' });
   const [status, setStatus] = useState('');
 
   const load = useCallback(() => { api<Task[]>('GET', '/admin/tasks').then(setTasks).catch(() => {}); }, []);
@@ -267,8 +268,14 @@ function TasksSection() {
   const add = async () => {
     if (!form.title.trim()) return;
     try {
-      await api('POST', '/admin/tasks', { ...form, reward: Number(form.reward) || 0 });
-      setForm({ title: '', description: '', reward: '', isDaily: false });
+      await api('POST', '/admin/tasks', {
+        title: form.title,
+        description: form.description,
+        reward: Number(form.reward) || 0,
+        isDaily: form.isDaily,
+        channelUsername: form.channelUsername.replace(/^@/, '') || null,
+      });
+      setForm({ title: '', description: '', reward: '', isDaily: false, channelUsername: '' });
       load(); setStatus('✅ أُضيفت');
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
@@ -282,6 +289,7 @@ function TasksSection() {
         <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="عنوان المهمة *" />
         <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="الوصف (اختياري)" />
         <Input value={form.reward} onChange={e => setForm(f => ({ ...f, reward: e.target.value }))} type="number" placeholder="المكافأة GMR" />
+        <Input value={form.channelUsername} onChange={e => setForm(f => ({ ...f, channelUsername: e.target.value }))} placeholder="يوزر القناة (اختياري) مثل: @mychannel" dir="ltr" />
         <label className="flex items-center gap-2 cursor-pointer text-sm text-white">
           <input type="checkbox" checked={form.isDaily} onChange={e => setForm(f => ({ ...f, isDaily: e.target.checked }))} className="w-4 h-4 accent-primary" />
           مهمة يومية
@@ -294,7 +302,7 @@ function TasksSection() {
           <div key={t.id} className={`bg-black/40 rounded-xl p-3 border border-white/5 flex items-start justify-between gap-2 ${t.isHidden ? 'opacity-50' : ''}`}>
             <div className="flex-1 min-w-0">
               <div className="font-bold text-white text-sm truncate">{t.title}</div>
-              <div className="text-xs text-muted-foreground">{t.reward} GMR{t.isDaily ? ' · يومية' : ''}</div>
+              <div className="text-xs text-muted-foreground">{t.reward} GMR{t.isDaily ? ' · يومية' : ''}{t.channelUsername ? ` · 📢 @${t.channelUsername}` : ''}</div>
               {t.description && <div className="text-xs text-muted-foreground/70 mt-0.5 truncate">{t.description}</div>}
             </div>
             <div className="flex gap-1 flex-shrink-0">
@@ -476,6 +484,19 @@ function UsersSection() {
               onClick={() => act(`/admin/users?action=restrict&telegramId=${u.telegramId}`, { restrict: !u.restrictWithdrawal }, u.restrictWithdrawal ? 'رُفع تقييد السحب' : 'تم تقييد السحب')}>
               <ArrowDownUp className="w-3 h-3" />{u.restrictWithdrawal ? 'رفع تقييد السحب' : 'تقييد السحب'}
             </Btn>
+            <Btn variant="danger" size="sm"
+              onClick={async () => {
+                if (!window.confirm(`هل أنت متأكد من مسح حساب ${u.firstName ?? u.telegramId} نهائياً؟`)) return;
+                try {
+                  await api('DELETE', `/admin/users/${u.telegramId}`, undefined);
+                  setStatus('✅ تم مسح الحساب');
+                  setSelected(null);
+                  setResults(prev => prev.filter(r => r.telegramId !== u.telegramId));
+                } catch (e: any) { setStatus(`❌ ${e.message}`); }
+                setTimeout(() => setStatus(''), 3000);
+              }}>
+              <Trash2 className="w-3 h-3" />مسح الحساب
+            </Btn>
           </div>
           <StatusMsg msg={status} isError={status.startsWith('❌')} />
         </div>
@@ -552,6 +573,91 @@ function MinersSection() {
 
       <StatusMsg msg={status} isError={status.startsWith('❌')} />
       <Btn onClick={() => save(miners)} className="w-full"><Check className="w-3.5 h-3.5" />حفظ كل التعديلات</Btn>
+    </div>
+  );
+}
+
+// ─── Withdrawals ────────────────────────────────────────────────────────────
+function WithdrawalsSection() {
+  const [items, setItems] = useState<Withdrawal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState('');
+  const [rejectId, setRejectId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api<Withdrawal[]>('GET', '/admin/withdrawals').then(setItems).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const approve = async (id: number) => {
+    setStatus('⏳ جار الإرسال...');
+    try {
+      await api('POST', `/admin/withdrawals/${id}/approve`, {});
+      setStatus('✅ تمت الموافقة وتم الإرسال');
+      load();
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    setTimeout(() => setStatus(''), 4000);
+  };
+
+  const reject = async (id: number) => {
+    try {
+      await api('POST', `/admin/withdrawals/${id}/reject`, { reason: rejectReason || 'تم الرفض من قبل الإدارة' });
+      setStatus('✅ تم الرفض وإعادة الرصيد');
+      setRejectId(null); setRejectReason('');
+      load();
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    setTimeout(() => setStatus(''), 3000);
+  };
+
+  const statusColor = (s: string) =>
+    s === 'approved' ? 'text-green-400' : s === 'rejected' ? 'text-red-400' : 'text-yellow-400';
+  const statusLabel = (s: string) =>
+    s === 'approved' ? '✅ مقبول' : s === 'rejected' ? '❌ مرفوض' : '⏳ قيد المراجعة';
+
+  if (loading) return <div className="text-muted-foreground text-sm">جار التحميل...</div>;
+
+  return (
+    <div className="space-y-3">
+      <StatusMsg msg={status} isError={status.startsWith('❌')} />
+      <Btn onClick={load} variant="ghost" size="sm" className="w-full">🔄 تحديث</Btn>
+      {items.length === 0 && <div className="text-center text-muted-foreground text-sm py-4">لا توجد طلبات</div>}
+      {items.map(w => (
+        <div key={w.id} className="bg-black/40 rounded-xl p-3 border border-white/5 space-y-2">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="font-bold text-white text-sm">{w.first_name ?? w.username ?? w.telegram_id}</div>
+              <div className="text-xs text-muted-foreground font-mono">ID: {w.telegram_id}</div>
+              <div className="text-primary font-black text-sm mt-0.5">{w.amount.toFixed(4)} GMR</div>
+              <div className="text-[10px] font-mono text-white/50 break-all mt-0.5">{w.wallet_address}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{new Date(w.created_at).toLocaleString('ar')}</div>
+            </div>
+            <span className={`text-xs font-bold ${statusColor(w.status)}`}>{statusLabel(w.status)}</span>
+          </div>
+          {w.status === 'pending' && (
+            <div className="flex gap-2">
+              <Btn size="sm" variant="success" onClick={() => approve(w.id)} className="flex-1">
+                <Check className="w-3 h-3" />موافقة + إرسال
+              </Btn>
+              <Btn size="sm" variant="danger" onClick={() => setRejectId(w.id)} className="flex-1">
+                <X className="w-3 h-3" />رفض
+              </Btn>
+            </div>
+          )}
+          {rejectId === w.id && (
+            <div className="space-y-2">
+              <Input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="سبب الرفض (اختياري)" />
+              <div className="flex gap-2">
+                <Btn size="sm" variant="danger" onClick={() => reject(w.id)} className="flex-1">تأكيد الرفض</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => { setRejectId(null); setRejectReason(''); }} className="flex-1">إلغاء</Btn>
+              </div>
+            </div>
+          )}
+          {w.tx_hash && <div className="text-[10px] font-mono text-green-400 break-all">TX: {w.tx_hash}</div>}
+          {w.rejection_reason && <div className="text-xs text-red-400">السبب: {w.rejection_reason}</div>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -779,6 +885,9 @@ export default function Admin() {
         </Section>
         <Section title="القنوات الإجبارية" icon={Radio}>
           <ChannelsSection />
+        </Section>
+        <Section title="طلبات السحب" icon={ArrowUp}>
+          <WithdrawalsSection />
         </Section>
         <Section title="الأدمن المساعدون" icon={UserPlus}>
           <AdminsSection />

@@ -107,16 +107,28 @@ router.post("/admin/tasks", async (req, res) => {
   const db = await getDb();
   if (!db) { res.status(503).json({ error: "Database not available" }); return; }
 
-  const { title, description, reward, isDaily } = req.body as {
-    title?: string; description?: string; reward?: number; isDaily?: boolean;
+  const { title, description, reward, isDaily, channelUsername } = req.body as {
+    title?: string; description?: string; reward?: number; isDaily?: boolean; channelUsername?: string;
   };
   if (!title) { res.status(400).json({ error: "title is required" }); return; }
+
+  // Ensure channelUsername column exists (lazy migration)
+  try {
+    const { pool } = await import("@workspace/db");
+    await pool.query("ALTER TABLE gm_tasks ADD COLUMN IF NOT EXISTS channel_username text");
+  } catch { /* ignore */ }
 
   try {
     const { tasksTable } = await import("@workspace/db");
     const [task] = await db
       .insert(tasksTable)
-      .values({ title, description: description ?? "", reward: reward ?? 0, isDaily: isDaily ?? false })
+      .values({
+        title,
+        description: description ?? "",
+        reward: reward ?? 0,
+        isDaily: isDaily ?? false,
+        channelUsername: channelUsername?.replace(/^@/, "") ?? null,
+      })
       .returning();
     res.json(task);
   } catch (err) {
@@ -214,18 +226,41 @@ router.get("/admin/users/search", async (req, res) => {
   const db = await getDb();
   if (!db) { res.status(503).json({ error: "Database not available" }); return; }
 
-  const q = req.query.q as string;
-  if (!q) { res.status(400).json({ error: "q (telegram_id or username) is required" }); return; }
+  const q = (req.query.q ?? req.query.action === "search" ? req.query.q : undefined) as string | undefined;
+  const searchQ = q ?? (req.query.q as string);
+  if (!searchQ) { res.status(400).json({ error: "q (telegram_id or username) is required" }); return; }
 
   try {
     const { usersTable } = await import("@workspace/db");
-    const byId = !isNaN(Number(q));
+    const byId = !isNaN(Number(searchQ));
     const users = byId
-      ? await db.select().from(usersTable).where(eq(usersTable.telegramId, Number(q))).limit(1)
-      : await db.select().from(usersTable).where(eq(usersTable.username, q)).limit(10);
+      ? await db.select().from(usersTable).where(eq(usersTable.telegramId, Number(searchQ))).limit(1)
+      : await db.select().from(usersTable).where(eq(usersTable.username, searchQ)).limit(10);
     res.json(users);
   } catch (err) {
     logger.error({ err }, "admin/users/search error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Delete / reset a user ─────────────────────────────────────────────────
+router.delete("/admin/users/:telegramId", async (req, res) => {
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  const telegramId = Number(req.params.telegramId);
+  if (!telegramId) { res.status(400).json({ error: "Invalid telegramId" }); return; }
+
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { pool } = await import("@workspace/db");
+    // Remove completions so re-joining feels fresh
+    await pool.query("DELETE FROM gm_task_completions WHERE telegram_id=$1", [telegramId]).catch(() => {});
+    await pool.query("DELETE FROM gm_withdrawals WHERE telegram_id=$1 AND status='pending'", [telegramId]).catch(() => {});
+    await db.delete(usersTable).where(eq(usersTable.telegramId, telegramId));
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "admin/users DELETE error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { telegramApiPost } from '@/lib/telegramApi';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { telegramApiPost, API_BASE, getInitData } from '@/lib/telegramApi';
 import { useTelegramUser } from './TelegramUserContext';
 
 type WalletContextType = {
@@ -17,21 +17,38 @@ type WalletContextType = {
   claimEarnings: () => void;
   connectWallet: (address: string) => void;
   addReferral: () => void;
+  refreshReferrals: () => void;
 };
 
 const WalletContext = createContext<WalletContextType | null>(null);
 
-const LS_BALANCE_KEY = 'gmr_holding_balance';
+/** Returns a per-user localStorage key so different Telegram accounts
+ *  stored on the same device never share the same balance. */
+function getLsKey(suffix: string): string {
+  const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  return tgId ? `gmr_${suffix}_${tgId}` : `gmr_${suffix}`;
+}
 
 function getStoredBalance(): number {
   try {
-    const v = localStorage.getItem(LS_BALANCE_KEY);
+    const v = localStorage.getItem(getLsKey('holding_balance'));
     return v !== null ? Number(v) : 0;
   } catch { return 0; }
 }
 
 function storeBalance(val: number) {
-  try { localStorage.setItem(LS_BALANCE_KEY, String(val)); } catch {}
+  try { localStorage.setItem(getLsKey('holding_balance'), String(val)); } catch {}
+}
+
+function getStoredWallet(): string | null {
+  try { return localStorage.getItem(getLsKey('wallet_address')); } catch { return null; }
+}
+
+function storeWallet(addr: string | null) {
+  try {
+    if (addr) localStorage.setItem(getLsKey('wallet_address'), addr);
+    else localStorage.removeItem(getLsKey('wallet_address'));
+  } catch {}
 }
 
 function generateCode(): string {
@@ -43,39 +60,58 @@ function generateCode(): string {
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { user, isVerified } = useTelegramUser();
 
-  // Start immediately from localStorage — so the user sees their last balance
-  // on every open, even before the server responds.
   const [holdingWallet, setHoldingWalletRaw] = useState<number>(getStoredBalance);
   const [poolWallet]       = useState(0);
   const [sessionEarnings, setSessionEarnings] = useState(0);
   const [referralBalance, setReferralBalance] = useState(0);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletAddress, setWalletAddressState] = useState<string | null>(getStoredWallet);
   const [minerLevel]     = useState(1);
   const [referralCode]   = useState(() => generateCode());
   const [referralCount, setReferralCount] = useState(0);
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
-  // Write-through helper: updates state AND localStorage atomically
-  const setHoldingWallet = (val: number) => {
+  // Write-through: state + localStorage in sync
+  const setHoldingWallet = useCallback((val: number) => {
     storeBalance(val);
     setHoldingWalletRaw(val);
-  };
+  }, []);
 
-  // Once the server-verified user arrives with their persisted balance,
-  // adopt it if it's higher than what we have locally (never overwrite
-  // a higher local value — user might have clicked many times this session).
+  const connectWallet = useCallback((address: string) => {
+    const addr = address || null;
+    storeWallet(addr);
+    setWalletAddressState(addr);
+  }, []);
+
+  // Seed from server balance once verified
   const seededFromServer = useRef(false);
   useEffect(() => {
     if (seededFromServer.current) return;
     if (!isVerified || typeof user?.balance !== 'number') return;
     seededFromServer.current = true;
-    // Use the server value only if it's >= local (server is source of truth
-    // for persisted balance, but never lose in-progress session gains).
     setHoldingWallet(Math.max(getStoredBalance(), user.balance));
-  }, [isVerified, user?.balance]);
+  }, [isVerified, user?.balance, setHoldingWallet]);
 
-  // Passive earnings: +0.001 GMR every second
+  // Load referrals from server
+  const fetchReferrals = useCallback(async () => {
+    const initData = getInitData();
+    if (!initData) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/telegram/referrals`, {
+        headers: { 'x-init-data': initData },
+      });
+      if (!res.ok) return;
+      const data = await res.json() as { count: number; reward: number };
+      setReferralCount(data.count ?? 0);
+      setReferralBalance(data.reward ?? 0);
+    } catch { /* best-effort */ }
+  }, []);
+
+  useEffect(() => {
+    if (isVerified) fetchReferrals();
+  }, [isVerified, fetchReferrals]);
+
+  // Passive earnings: +0.001 GMR / second
   useEffect(() => {
     const interval = setInterval(() => {
       setSessionEarnings(prev => prev + 0.001);
@@ -96,23 +132,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     telegramApiPost<{ balance: number }>('/telegram/claim', { amount })
       .then(({ balance }) => {
-        // Server confirms new total — update state + localStorage
         setHoldingWallet(balance);
         setSessionEarnings(0);
       })
       .catch(err => {
         console.error('Claim API failed, saving locally:', err);
-        // Graceful degradation: persist locally so earnings aren't lost
         const newBalance = getStoredBalance() + amount;
         setHoldingWallet(newBalance);
         setSessionEarnings(0);
-        // Don't show an error — the user's coins are saved, just locally
       })
       .finally(() => setIsClaiming(false));
-  };
-
-  const connectWallet = (address: string) => {
-    setWalletAddress(address || null);
   };
 
   const addReferral = () => {
@@ -120,12 +149,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setReferralBalance(prev => prev + 0.01);
   };
 
+  const refreshReferrals = () => { fetchReferrals(); };
+
   return (
     <WalletContext.Provider value={{
       holdingWallet, poolWallet, sessionEarnings,
       referralBalance, walletAddress, minerLevel,
       referralCode, referralCount, isClaiming, claimError,
-      addClickEarning, claimEarnings, connectWallet, addReferral,
+      addClickEarning, claimEarnings, connectWallet, addReferral, refreshReferrals,
     }}>
       {children}
     </WalletContext.Provider>
