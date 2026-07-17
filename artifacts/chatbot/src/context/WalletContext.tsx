@@ -148,7 +148,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const addReferral = () => {
     setReferralCount(prev => prev + 1);
-    setReferralBalance(prev => prev + 0.01);
+    setReferralBalance(prev => prev + 1);
   };
 
   const refreshReferrals = () => { fetchReferrals(); };

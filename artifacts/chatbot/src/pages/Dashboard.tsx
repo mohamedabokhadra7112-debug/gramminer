@@ -4,14 +4,12 @@ import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import gramCoinImg from '@/assets/gram-coin.png';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, addClickEarning, claimEarnings } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
   const { t } = useLanguage();
-  const [clicks, setClicks] = useState<{ id: number; x: number; y: number }[]>([]);
   const [showWallet, setShowWallet] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
@@ -42,25 +40,9 @@ export default function Dashboard() {
     } catch (_) {}
   };
 
-  const handleCoinClick = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    let clientX, clientY;
-    if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    setClicks(prev => [...prev, { id: Date.now() + Math.random(), x, y }]);
+  const handleCoinClick = () => {
     addClickEarning(0.001);
     playMiningTone();
-  };
-
-  const handleAnimationEnd = (id: number) => {
-    setClicks(prev => prev.filter(click => click.id !== id));
   };
 
   return (
@@ -131,7 +113,6 @@ export default function Dashboard() {
         <div
           className="relative w-[min(260px,58vw)] h-[min(260px,58vw)] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl active:scale-95 transition-transform duration-100"
           onClick={handleCoinClick}
-          onTouchStart={handleCoinClick}
         >
           <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
@@ -140,22 +121,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <AnimatePresence>
-            {clicks.map(click => (
-              <motion.div
-                key={click.id}
-                initial={{ opacity: 1, y: 0, scale: 1 }}
-                animate={{ opacity: 0, y: -120, scale: 1.5 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 1, ease: "easeOut" }}
-                onAnimationComplete={() => handleAnimationEnd(click.id)}
-                className="absolute text-2xl font-bold text-white pointer-events-none select-none drop-shadow-md z-50"
-                style={{ left: click.x, top: click.y, transform: 'translate(-50%, -50%)' }}
-              >
-                +0.001
-              </motion.div>
-            ))}
-          </AnimatePresence>
         </div>
       </div>
 

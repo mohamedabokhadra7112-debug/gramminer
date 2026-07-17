@@ -86,7 +86,7 @@ export default function Friends() {
           <div>
             <h2 className="text-lg font-black text-white">{t('friends_invite_title')}</h2>
             <p className="text-sm text-white/80">
-              {t('friends_invite_desc', { reward: '0.01' })}
+              {t('friends_invite_desc', { reward: '1' })}
             </p>
           </div>
         </div>
@@ -151,7 +151,7 @@ export default function Friends() {
                   </div>
                   <span className="text-sm text-white font-medium">{t('friends_friend_label')} {i + 1}</span>
                 </div>
-                <span className="text-xs text-success font-bold">+0.01 GMR</span>
+                <span className="text-xs text-success font-bold">+1 GMR</span>
               </div>
             ))}
           </div>
