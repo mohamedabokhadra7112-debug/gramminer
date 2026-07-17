@@ -6,6 +6,7 @@ import { useMiners } from '@/context/MinersContext';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown } from 'lucide-react';
 import { formatGram } from '@/lib/utils';
+import gramLogoImg from '@assets/IMG_20260717_131358_656_1784283967558.jpg';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, claimEarnings } = useWallet();
@@ -114,9 +115,12 @@ export default function Dashboard() {
         >
           <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
-            <div className="text-[clamp(2.2rem,9vw,3.25rem)] font-black text-[#3a2200] relative z-10 tracking-tighter">
-              gram
-            </div>
+            <img
+              src={gramLogoImg}
+              alt="gram"
+              className="w-[80%] h-[80%] object-contain relative z-10"
+              style={{ mixBlendMode: 'screen' }}
+            />
           </div>
         </div>
       </div>
