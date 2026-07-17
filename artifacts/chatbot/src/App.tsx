@@ -18,10 +18,12 @@ import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 
 const queryClient = new QueryClient();
 
-// The TON Connect manifest lives in /public so Vite serves it at the origin root.
+// The TON Connect manifest is served dynamically from the API so the iconUrl
+// is always built from the real origin (no broken Vercel redirect).
+// API_BASE is '' in dev (Vite proxy forwards /api → port 8080).
 const manifestUrl = typeof window !== 'undefined'
-  ? `${window.location.origin}/tonconnect-manifest.json`
-  : '/tonconnect-manifest.json';
+  ? `/api/tonconnect-manifest?origin=${encodeURIComponent(window.location.origin)}`
+  : '/api/tonconnect-manifest';
 
 // Keeps a CSS var in sync with the *real* visible height inside Telegram's
 // in-app browser — plain 100dvh is unreliable inside Telegram's WebView.
@@ -55,7 +57,10 @@ function AppWithLanguage({ children }: { children: React.ReactNode }) {
 
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full gap-4">
+    <div
+      className="flex flex-col items-center justify-center h-full w-full gap-4"
+      style={{ backgroundColor: '#0a0b14' }}
+    >
       <div className="w-16 h-16 rounded-full border-4 border-primary border-t-transparent animate-spin" />
       <span className="text-primary font-bold text-lg tracking-widest animate-pulse">GramMiner</span>
     </div>

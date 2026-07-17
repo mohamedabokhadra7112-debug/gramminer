@@ -5,10 +5,12 @@ import adminRouter     from "./admin";
 import userPrefsRouter from "./userPrefs";
 import tasksRouter     from "./tasks";
 import withdrawRouter  from "./withdraw";
+import manifestRouter  from "./manifest";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(manifestRouter);
 router.use(telegramRouter);
 router.use(adminRouter);
 router.use(userPrefsRouter);

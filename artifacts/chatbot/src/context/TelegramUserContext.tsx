@@ -52,6 +52,10 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
       return;
     }
 
+    // Safety valve: never leave the user on a loading screen forever.
+    // If the auth fetch hangs (cold API start, network issue), unblock after 8 s.
+    const safetyTimer = setTimeout(() => setIsLoading(false), 8000);
+
     fetch(`${API_BASE}/api/telegram/auth`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -71,7 +75,10 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
         // so the user always sees their real name, never "Miner".
         console.warn('Telegram auth sync failed (showing local name):', err);
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        clearTimeout(safetyTimer);
+        setIsLoading(false);
+      });
   }, []);
 
   const avatarUrl = user?.id ? `${API_BASE}/api/telegram/avatar/${user.id}` : null;

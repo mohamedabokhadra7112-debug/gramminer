@@ -17,8 +17,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Prevent black flash before React mounts -->
+    <style>
+      html, body, #root {
+        background-color: #0a0b14;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
     <!-- Telegram Mini App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Call ready() + expand() as early as possible — before any React bundle -->
+    <script>
+      (function () {
+        try {
+          var tg = window.Telegram && window.Telegram.WebApp;
+          if (tg) {
+            tg.ready();
+            tg.expand();
+          }
+        } catch (e) {
+          // Ignore — SDK not yet available in browser preview
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
