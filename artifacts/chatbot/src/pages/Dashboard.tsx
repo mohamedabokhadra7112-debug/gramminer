@@ -1,57 +1,37 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
+import { useMiners } from '@/context/MinersContext';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown } from 'lucide-react';
-import gramCoinImg from '@/assets/gram-coin.png';
-import { API_BASE, getInitData } from '@/lib/telegramApi';
+import { formatGram } from '@/lib/utils';
 
 export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, claimEarnings } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
   const { t } = useLanguage();
+  const { dailyProjection } = useMiners();
   const [showWallet, setShowWallet] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const [earnings24h, setEarnings24h] = useState<number | null>(null);
 
-  const userName = tgUser?.first_name || 'Miner';
+  const userName    = tgUser?.first_name || 'Miner';
   const userInitial = userName[0].toUpperCase();
-  const showAvatar = Boolean(avatarUrl) && !avatarFailed;
+  const showAvatar  = Boolean(avatarUrl) && !avatarFailed;
 
-  const totalAssets = holdingWallet + poolWallet + sessionEarnings;
+  // Round before summing to prevent floating-point drift from corrupting the display
+  const totalAssets = Math.round((holdingWallet + poolWallet + sessionEarnings) * 1_000_000) / 1_000_000;
 
   const shortAddress = walletAddress
     ? walletAddress.slice(0, 2) + '...' + walletAddress.slice(-2)
     : null;
 
-  const fetch24hEarnings = useCallback(async () => {
-    const initData = getInitData();
-    if (!initData) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/telegram/earnings/24h`, {
-        headers: { 'x-init-data': initData },
-      });
-      if (res.ok) {
-        const data = await res.json() as { earnings?: number };
-        if (typeof data.earnings === 'number') {
-          setEarnings24h(data.earnings);
-        }
-      }
-    } catch { /* best-effort */ }
-  }, []);
-
-  // Fetch on mount
-  useEffect(() => { fetch24hEarnings(); }, [fetch24hEarnings]);
-
-  // Re-fetch whenever a claim finishes (isClaiming transitions true → false)
+  // Detect when a claim finishes (isClaiming: true → false).
+  // No longer needed for 24h fetch, kept in case we want to re-sync in future.
   const prevIsClaiming = useRef(false);
   useEffect(() => {
-    if (prevIsClaiming.current && !isClaiming) {
-      fetch24hEarnings();
-    }
     prevIsClaiming.current = isClaiming;
-  }, [isClaiming, fetch24hEarnings]);
+  }, [isClaiming]);
 
   return (
     <div className="min-h-full flex flex-col relative w-full">
@@ -96,23 +76,24 @@ export default function Dashboard() {
 
       {/* Balances */}
       <div className="flex flex-col items-center mt-3 relative z-10 px-4">
+        {/* Total — round first to prevent floating-point drift appearing as raw JS number */}
         <div className="text-[clamp(1.5rem,7vw,2rem)] font-black text-white mb-2 text-center px-2">
-          {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} gram
+          {formatGram(totalAssets, 4)} gram
         </div>
         <div className="flex gap-2 w-full max-w-sm">
           {/* Holding wallet */}
           <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
             <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">{t('dashboard_holding_wallet')}</div>
             <div className="text-sm font-bold text-white">
-              {holdingWallet.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} gram
+              {formatGram(holdingWallet, 3)} gram
             </div>
           </div>
-          {/* 24-hour earnings */}
+          {/* Projected 24-hour earnings from owned miners */}
           <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
             <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">{t('dashboard_24h_label')}</div>
             <div className="text-sm font-bold text-success">
-              {earnings24h !== null
-                ? `+${earnings24h.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} gram`
+              {dailyProjection > 0
+                ? `+${formatGram(dailyProjection, 4)} gram`
                 : '—'}
             </div>
           </div>
@@ -122,7 +103,7 @@ export default function Dashboard() {
       {/* Session Earnings */}
       <div className="flex justify-center mt-3 relative z-10">
         <div className="text-[clamp(2rem,9vw,3rem)] font-black text-success glow-text-success tabular-nums">
-          +{sessionEarnings.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+          +{formatGram(sessionEarnings, 4)}
         </div>
       </div>
 
@@ -137,7 +118,6 @@ export default function Dashboard() {
               gram
             </div>
           </div>
-
         </div>
       </div>
 

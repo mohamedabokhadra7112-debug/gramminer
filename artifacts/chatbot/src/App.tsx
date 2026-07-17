@@ -14,6 +14,7 @@ import { TelegramUserProvider } from './context/TelegramUserContext';
 import { useTelegramUser } from './context/TelegramUserContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { CoinsProvider } from './context/CoinsContext';
+import { MinersProvider } from './context/MinersContext';
 import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 
 const queryClient = new QueryClient();
@@ -114,11 +115,13 @@ function App() {
           <AppWithLanguage>
             <CoinsProvider>
               <WalletProvider>
-                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-                  <div className="min-h-screen bg-black flex items-center justify-center">
-                    <Router />
-                  </div>
-                </WouterRouter>
+                <MinersProvider>
+                  <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+                    <div className="min-h-screen bg-black flex items-center justify-center">
+                      <Router />
+                    </div>
+                  </WouterRouter>
+                </MinersProvider>
               </WalletProvider>
             </CoinsProvider>
           </AppWithLanguage>

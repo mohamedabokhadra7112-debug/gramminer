@@ -1,72 +1,9 @@
-import { useState, useEffect } from 'react';
 import { Lock, Clock, Zap } from 'lucide-react';
 import { useCoins } from '@/context/CoinsContext';
 import { useWallet } from '@/context/WalletContext';
-
-// ─── Miners configuration ─────────────────────────────────────────────────────
-// Miners 1-5: 5% daily ROI, Miners 6-10: 8% daily ROI
-// Costs: 10 / 50 / 250 / 500 / 1000 / 2000 / 5000 / 10000 / 15000 / 20000
-// Each level upgrade costs baseCost * 1.1^currentLevel
-// Daily reward = baseCost * dailyPct * level  (scales with level)
-// 700 GRAM = 1 TON
-
-const MINERS_CONFIG = [
-  { id: 1,  name: 'Stone Collector',     baseCost: 10,    dailyPct: 0.05, row: 0, col: 0 },
-  { id: 2,  name: 'Copper Miner',        baseCost: 50,    dailyPct: 0.05, row: 0, col: 1 },
-  { id: 3,  name: 'Ore Cart',            baseCost: 250,   dailyPct: 0.05, row: 0, col: 2 },
-  { id: 4,  name: 'Crystal Hunter',      baseCost: 500,   dailyPct: 0.05, row: 0, col: 3 },
-  { id: 5,  name: 'Forge Master',        baseCost: 1000,  dailyPct: 0.05, row: 0, col: 4 },
-  { id: 6,  name: 'Mining Drone',        baseCost: 2000,  dailyPct: 0.08, row: 1, col: 0 },
-  { id: 7,  name: 'Quantum Excavator',   baseCost: 5000,  dailyPct: 0.08, row: 1, col: 1 },
-  { id: 8,  name: 'Satellite Extractor', baseCost: 10000, dailyPct: 0.08, row: 1, col: 2 },
-  { id: 9,  name: 'Planet Miner',        baseCost: 15000, dailyPct: 0.08, row: 1, col: 3 },
-  { id: 10, name: 'Gram Core Reactor',   baseCost: 20000, dailyPct: 0.08, row: 1, col: 4 },
-] as const;
-
-const MAX_LEVEL = 10;
-const MS_24H = 24 * 60 * 60 * 1000;
-const STORAGE_KEY = 'gram_miners_state';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-type MinersState = {
-  levels: Record<number, number>;
-  lastClaimAt: number | null;
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function loadState(): MinersState {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved) as MinersState;
-  } catch { /* ignore */ }
-  return { levels: {}, lastClaimAt: null };
-}
-
-function saveState(state: MinersState) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
-}
-
-/** Cost to go from `level` → `level+1`: baseCost × 1.1^level */
-function getUpgradeCost(baseCost: number, level: number): number {
-  return Math.round(baseCost * Math.pow(1.1, level));
-}
-
-/** Daily GRAM reward = baseCost × pct × level (increases each level) */
-function getDailyReward(baseCost: number, pct: number, level: number): number {
-  return baseCost * pct * level;
-}
-
-/** CSS for the sprite sheet (5 cols × 2 rows) */
-function spriteStyle(col: number, row: number): React.CSSProperties {
-  const x = col === 0 ? 0 : (col / 4) * 100;
-  const y = row === 0 ? 0 : 100;
-  return {
-    backgroundImage: 'url(/miners-sheet.jpg)',
-    backgroundSize: '500% 200%',
-    backgroundPosition: `${x}% ${y}%`,
-    backgroundRepeat: 'no-repeat',
-  };
-}
+import { useMiners } from '@/context/MinersContext';
+import { MINERS_CONFIG, MAX_MINER_LEVEL, getDailyReward, getUpgradeCost, spriteStyle } from '@/lib/miners';
+import { formatGram } from '@/lib/utils';
 
 function formatCountdown(ms: number): string {
   const h = Math.floor(ms / 3_600_000);
@@ -75,62 +12,22 @@ function formatCountdown(ms: number): string {
   return [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function Miners() {
   const { coins, spendCoins } = useCoins();
-  const { addClickEarning } = useWallet();
+  const { addClickEarning }   = useWallet();
+  const {
+    getLevel, isLocked, canClaim, remainingMs, totalPending,
+    upgrade, claimAll,
+  } = useMiners();
 
-  const [state, setState] = useState<MinersState>(loadState);
-  const [now, setNow] = useState(Date.now());
-
-  // Tick every second for the countdown timer
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Persist whenever state changes
-  useEffect(() => { saveState(state); }, [state]);
-
-  const getLevel = (id: number) => state.levels[id] ?? 0;
-
-  const isLocked = (index: number) =>
-    index > 0 && getLevel(MINERS_CONFIG[index - 1].id) < 1;
-
-  // Claim timing
-  const elapsed = state.lastClaimAt ? now - state.lastClaimAt : MS_24H + 1;
-  const canClaim = elapsed >= MS_24H;
-  const remainingMs = canClaim ? 0 : MS_24H - elapsed;
-
-  // Total GRAM ready to claim (only when 24 h cycle complete)
-  const totalPending = canClaim
-    ? MINERS_CONFIG.reduce((sum, m) => {
-        const lvl = getLevel(m.id);
-        return lvl > 0 ? sum + getDailyReward(m.baseCost, m.dailyPct, lvl) : sum;
-      }, 0)
-    : 0;
-
-  // ── Handlers ─────────────────────────────────────────────────────────────────
   const handleUpgrade = (minerId: number, index: number) => {
-    if (isLocked(index)) return;
-    const level = getLevel(minerId);
-    if (level >= MAX_LEVEL) return;
-    const miner = MINERS_CONFIG[index];
-    const cost = getUpgradeCost(miner.baseCost, level);
-    if (!spendCoins(cost)) return;
-    setState(prev => ({
-      ...prev,
-      levels: { ...prev.levels, [minerId]: level + 1 },
-    }));
+    upgrade(minerId, index, spendCoins);
   };
 
   const handleClaimAll = () => {
-    if (!canClaim || totalPending <= 0) return;
-    addClickEarning(totalPending);
-    setState(prev => ({ ...prev, lastClaimAt: Date.now() }));
+    if (canClaim && totalPending > 0) claimAll(addClickEarning);
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-full flex flex-col relative w-full px-4 pt-5">
       {/* Dark overlay */}
@@ -154,7 +51,7 @@ export default function Miners() {
               totalPending > 0 ? (
                 <>
                   <div className="text-green-400 font-bold text-sm">
-                    +{totalPending.toLocaleString(undefined, { maximumFractionDigits: 2 })} gram ready!
+                    +{formatGram(totalPending, 2)} gram ready!
                   </div>
                   <div className="text-gray-400 text-xs mt-0.5">24h mining cycle complete</div>
                 </>
@@ -192,12 +89,12 @@ export default function Miners() {
       {/* ── Miners list ── */}
       <div className="relative z-10 flex-1 space-y-3 pb-6">
         {MINERS_CONFIG.map((miner, index) => {
-          const locked  = isLocked(index);
-          const level   = getLevel(miner.id);
-          const maxed   = level >= MAX_LEVEL;
-          const cost    = getUpgradeCost(miner.baseCost, level);
+          const locked    = isLocked(index);
+          const level     = getLevel(miner.id);
+          const maxed     = level >= MAX_MINER_LEVEL;
+          const cost      = getUpgradeCost(miner.baseCost, level);
           const canAfford = coins >= cost;
-          const daily   = getDailyReward(miner.baseCost, miner.dailyPct, level);
+          const daily     = getDailyReward(miner.baseCost, miner.dailyPct, level);
 
           return (
             <div
@@ -247,16 +144,16 @@ export default function Miners() {
                     <div>
                       <p className="text-gray-400 text-xs">Not purchased</p>
                       <p className="text-green-500/70 text-xs mt-0.5">
-                        Earns {(miner.baseCost * miner.dailyPct).toLocaleString(undefined, { maximumFractionDigits: 2 })} gram/day at L1
+                        Earns {formatGram(miner.baseCost * miner.dailyPct, 2)} gram/day at L1
                       </p>
                     </div>
                   ) : (
                     <div>
                       <p className="text-green-400 text-xs font-semibold">
-                        {daily.toLocaleString(undefined, { maximumFractionDigits: 2 })} gram / 24h
+                        {formatGram(daily, 2)} gram / 24h
                       </p>
                       <p className="text-blue-400/80 text-xs">
-                        {(miner.dailyPct * 100)}% daily · L{level}/{MAX_LEVEL}
+                        {(miner.dailyPct * 100)}% daily · L{level}/{MAX_MINER_LEVEL}
                       </p>
                     </div>
                   )}
@@ -266,7 +163,7 @@ export default function Miners() {
                     <div className="mt-1.5 w-full bg-black/40 rounded-full h-1.5">
                       <div
                         className={`h-1.5 rounded-full transition-all ${maxed ? 'bg-yellow-400' : 'bg-primary'}`}
-                        style={{ width: `${(level / MAX_LEVEL) * 100}%` }}
+                        style={{ width: `${(level / MAX_MINER_LEVEL) * 100}%` }}
                       />
                     </div>
                   )}

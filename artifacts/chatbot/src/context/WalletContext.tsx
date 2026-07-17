@@ -129,9 +129,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [isVerified, fetchReferrals]);
 
   // Passive earnings: +0.001 gram / second
+  // Round to 6 d.p. at each tick to prevent IEEE-754 drift accumulating into
+  // a distorted floating-point string (e.g. "0.026000000000000002").
   useEffect(() => {
     const interval = setInterval(() => {
-      setSessionEarnings(prev => prev + 0.001);
+      setSessionEarnings(prev => Math.round((prev + 0.001) * 1_000_000) / 1_000_000);
     }, 1000);
     return () => clearInterval(interval);
   }, []);
