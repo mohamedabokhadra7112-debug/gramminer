@@ -684,29 +684,54 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   const firstName: string = from.first_name || "Miner";
   const isAdmin = adminId > 0 && from.id === adminId;
 
-  // Track the user in DB (best-effort) — language_code seeds the initial language preference
-  void upsertUser({ id: from.id, first_name: from.first_name, username: from.username, language_code: from.language_code });
+  // ── Detect new vs. returning user BEFORE upsert ──────────────────────────
+  // upsertUser uses ON CONFLICT DO UPDATE so it always succeeds — we cannot
+  // tell new from returning after the fact.  Check first, then upsert.
+  let isNewUser = false;
+  try {
+    const db = await getDb();
+    if (db) {
+      const { usersTable } = await import("@workspace/db");
+      const { eq }         = await import("drizzle-orm");
+      const rows = await db
+        .select({ id: usersTable.telegramId })
+        .from(usersTable)
+        .where(eq(usersTable.telegramId, from.id))
+        .limit(1);
+      isNewUser = rows.length === 0;
+    }
+  } catch { /* best-effort */ }
+
+  // Upsert awaited (not void) so the user row exists before any referral credit
+  await upsertUser({ id: from.id, first_name: from.first_name, username: from.username, language_code: from.language_code });
 
   try {
     if (text === "/start" || text.startsWith("/start ")) {
-      logger.debug({ chat_id, firstName }, "/start handler entered");
+      logger.debug({ chat_id, firstName, isNewUser }, "/start handler entered");
 
       // ── Process referral code embedded in /start payload ──────────────────
       // Supported formats:
       //   /start 123456789       — plain Telegram user ID  (preferred)
       //   /start GMR123456789    — legacy GMR prefix format
+      //
+      // Guards (all must pass before crediting):
+      //   1. isNewUser  — only first-time users count as a valid referral
+      //   2. referrerId !== from.id — no self-referral
+      //   3. referrer exists in gm_users — must be a real registered user
+      //   4. referred_id not already in gm_referrals — idempotency guard
       const startPayload = text.slice("/start".length).trim();
       const referralMatch = startPayload.match(/^(?:GMR)?(\d{5,})$/);
-      if (referralMatch) {
+      if (referralMatch && isNewUser) {
         const referrerId = Number(referralMatch[1]);
         if (referrerId && referrerId !== from.id) {
           const db = await getDb();
           if (db) {
             try {
-              const { pool } = await import("@workspace/db");
+              const { pool }       = await import("@workspace/db");
               const { usersTable } = await import("@workspace/db");
-              const { eq, sql } = await import("drizzle-orm");
-              // Ensure schema
+              const { eq, sql }    = await import("drizzle-orm");
+
+              // Ensure schema exists
               await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS referred_by bigint").catch(() => {});
               await pool.query(`
                 CREATE TABLE IF NOT EXISTS gm_referrals (
@@ -718,29 +743,50 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
                 )
               `).catch(() => {});
 
-              // Only credit once: check gm_referrals table
-              const existing = await pool.query(
-                "SELECT id FROM gm_referrals WHERE referred_id=$1",
-                [from.id],
-              );
-              if (existing.rows.length === 0) {
-                // Insert referral record
-                await pool.query(
-                  "INSERT INTO gm_referrals (referrer_id, referred_id, reward_paid) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",
-                  [referrerId, from.id],
+              // Guard 3: verify the referrer is a real registered user
+              const referrerRows = await db
+                .select({ id: usersTable.telegramId })
+                .from(usersTable)
+                .where(eq(usersTable.telegramId, referrerId))
+                .limit(1);
+              if (referrerRows.length === 0) {
+                logger.warn({ referrerId, from: from.id }, "Referral skipped: referrer not found in DB");
+              } else {
+                // Guard 4: idempotency — never credit the same referred user twice
+                const existing = await pool.query(
+                  "SELECT id FROM gm_referrals WHERE referred_id=$1",
+                  [from.id],
                 );
-                // Also store referred_by on the user row
-                await db
-                  .update(usersTable)
-                  .set({ referredBy: referrerId })
-                  .where(eq(usersTable.telegramId, from.id));
-                // Credit the referrer
-                const referralReward = 0.01;
-                await db
-                  .update(usersTable)
-                  .set({ balance: sql`${usersTable.balance} + ${referralReward}` })
-                  .where(eq(usersTable.telegramId, referrerId));
-                logger.info({ from: from.id, referrerId, reward: referralReward }, "Referral processed");
+                if (existing.rows.length === 0) {
+                  // Insert referral record
+                  await pool.query(
+                    "INSERT INTO gm_referrals (referrer_id, referred_id, reward_paid) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",
+                    [referrerId, from.id],
+                  );
+                  // Store referred_by on the new user's row
+                  await db
+                    .update(usersTable)
+                    .set({ referredBy: referrerId })
+                    .where(eq(usersTable.telegramId, from.id));
+                  // Credit the referrer's balance
+                  const referralReward = 0.01;
+                  await db
+                    .update(usersTable)
+                    .set({ balance: sql`${usersTable.balance} + ${referralReward}` })
+                    .where(eq(usersTable.telegramId, referrerId));
+                  logger.info({ from: from.id, referrerId, reward: referralReward }, "Referral processed");
+                  // Notify the referrer — wrapped in try/catch so a blocked bot
+                  // or any Telegram error never crashes the overall /start flow
+                  try {
+                    await sendMessage(
+                      token,
+                      referrerId,
+                      `🎉 <b>تمت إحالة صديقك بنجاح!</b>\n\nانضم مستخدم جديد عبر رابط الإحالة الخاص بك.\n💰 تم إضافة <b>${referralReward} GMR</b> إلى رصيدك.`,
+                    );
+                  } catch (notifyErr) {
+                    logger.warn({ notifyErr, referrerId }, "Referral notification failed (non-fatal)");
+                  }
+                }
               }
             } catch (e) {
               logger.warn({ e }, "Referral processing failed (non-fatal)");
