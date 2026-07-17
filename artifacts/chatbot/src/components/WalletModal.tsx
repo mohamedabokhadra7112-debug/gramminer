@@ -1,38 +1,90 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import { useWallet } from '@/context/WalletContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
+
+/** Shows first 4 chars + "..." + last 4 chars of a TON address */
+function shortAddress(addr: string): string {
+  if (!addr) return '';
+  return addr.slice(0, 4) + '...' + addr.slice(-4);
+}
 
 export default function WalletModal({ onClose }: { onClose: () => void }) {
   const [tonConnectUI] = useTonConnectUI();
-  const tonWallet = useTonWallet();
+  const tonWallet      = useTonWallet();
   const { connectWallet, walletAddress } = useWallet();
   const { t } = useLanguage();
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'ok' | 'err'>('idle');
+  const [saveMsg,    setSaveMsg]    = useState('');
 
+  // When TON Connect gives us a new address, save it to the server (with uniqueness check)
   useEffect(() => {
-    if (tonWallet?.account?.address) {
-      connectWallet(tonWallet.account.address);
+    const addr = tonWallet?.account?.address;
+    if (!addr) return;
+
+    const initData = getInitData();
+    if (!initData) {
+      // No Telegram context (desktop dev preview) — just save locally
+      connectWallet(addr);
+      return;
     }
-  }, [tonWallet?.account?.address, connectWallet]);
+
+    setSaveStatus('saving');
+    fetch(`${API_BASE}/api/telegram/wallet`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, address: addr }),
+    })
+      .then(async r => {
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({})) as { message?: string };
+          if (r.status === 409) {
+            // Address taken by another account — disconnect immediately
+            tonConnectUI.disconnect();
+            setSaveStatus('err');
+            setSaveMsg(data.message ?? 'هذا العنوان مرتبط بحساب آخر بالفعل');
+            return;
+          }
+          throw new Error(data.message ?? `HTTP ${r.status}`);
+        }
+        connectWallet(addr);
+        setSaveStatus('ok');
+        setSaveMsg('');
+      })
+      .catch(e => {
+        // Server unavailable — save locally anyway, will sync later
+        connectWallet(addr);
+        setSaveStatus('err');
+        setSaveMsg(`تعذر الحفظ على السيرفر: ${e instanceof Error ? e.message : String(e)}`);
+      });
+  }, [tonWallet?.account?.address, connectWallet, tonConnectUI]);
 
   const handleConnect = () => {
+    setSaveStatus('idle');
+    setSaveMsg('');
     tonConnectUI.openModal();
   };
 
   const handleDisconnect = async () => {
+    const initData = getInitData();
+    if (initData) {
+      await fetch(`${API_BASE}/api/telegram/wallet`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData }),
+      }).catch(() => {});
+    }
     await tonConnectUI.disconnect();
     connectWallet('');
     onClose();
   };
 
-  const connected = Boolean(tonWallet?.account?.address || walletAddress);
+  const connected     = Boolean(tonWallet?.account?.address || walletAddress);
   const displayAddress = tonWallet?.account?.address || walletAddress;
-
-  const shortAddr = displayAddress
-    ? displayAddress.slice(0, 2) + '...' + displayAddress.slice(-2)
-    : '';
+  const shortAddr      = displayAddress ? shortAddress(displayAddress) : '';
 
   return (
     <AnimatePresence>
@@ -68,6 +120,18 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
           {connected ? (
             <div className="flex flex-col items-center gap-4 pb-2">
               <div className="text-success text-lg font-bold">{t('wallet_connected')}</div>
+
+              {saveStatus === 'saving' && (
+                <div className="text-xs text-primary animate-pulse">⏳ جار الحفظ...</div>
+              )}
+              {saveStatus === 'err' && saveMsg && (
+                <div className="text-xs text-red-400 text-center px-2 bg-red-500/10 rounded-xl p-2 border border-red-500/20">
+                  ❌ {saveMsg}
+                </div>
+              )}
+              {saveStatus === 'ok' && (
+                <div className="text-xs text-success">✅ تم الحفظ في السيرفر</div>
+              )}
 
               <div className="bg-black/40 rounded-xl px-6 py-2.5 border border-success/30">
                 <span className="text-success font-mono text-base font-bold tracking-wider">{shortAddr}</span>

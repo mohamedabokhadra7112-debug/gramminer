@@ -253,7 +253,7 @@ export default function Profile() {
   const showAvatar = Boolean(avatarUrl) && !avatarFailed;
 
   const shortAddr = walletAddress
-    ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
+    ? `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`
     : null;
 
   return (

@@ -458,20 +458,94 @@ router.get("/telegram/referrals", async (req, res): Promise<void> => {
   const user = verifyInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
-  const db = await getDb();
-  if (!db) { res.json({ count: 0, reward: 0 }); return; }
-
   try {
     const { pool } = await import("@workspace/db");
-    await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS referred_by bigint").catch(() => {});
+    // Ensure tables exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS gm_referrals (
+        id serial PRIMARY KEY, referrer_id bigint NOT NULL,
+        referred_id bigint NOT NULL UNIQUE, reward_paid boolean NOT NULL DEFAULT false,
+        created_at timestamp NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
     const result = await pool.query(
-      "SELECT COUNT(*) AS count FROM gm_users WHERE referred_by=$1",
+      "SELECT COUNT(*) AS count FROM gm_referrals WHERE referrer_id=$1",
       [user.id],
     );
     const count = Number(result.rows[0]?.count ?? 0);
     res.json({ count, reward: +(count * 0.01).toFixed(4) });
   } catch {
     res.json({ count: 0, reward: 0 });
+  }
+});
+
+// Save / update wallet address for the current user — with uniqueness check.
+router.post("/telegram/wallet", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const initData = (req.body?.initData ?? "") as string;
+  const address  = (req.body?.address ?? "")  as string;
+
+  if (!initData) { res.status(400).json({ error: "initData required" }); return; }
+  if (!address)  { res.status(400).json({ error: "address required" });  return; }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "DB not available" }); return; }
+
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { eq, and, ne } = await import("drizzle-orm");
+
+    // Check uniqueness: is this address already linked to a DIFFERENT user?
+    const [taken] = await db
+      .select({ telegramId: usersTable.telegramId })
+      .from(usersTable)
+      .where(and(eq(usersTable.walletAddress, address), ne(usersTable.telegramId, user.id)));
+
+    if (taken) {
+      res.status(409).json({ error: "wallet_taken", message: "هذا العنوان مرتبط بحساب آخر بالفعل" });
+      return;
+    }
+
+    // Save
+    await db
+      .update(usersTable)
+      .set({ walletAddress: address })
+      .where(eq(usersTable.telegramId, user.id));
+
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "POST /telegram/wallet failed");
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
+// Remove wallet address for the current user.
+router.delete("/telegram/wallet", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const initData = (req.body?.initData ?? "") as string;
+  if (!initData) { res.status(400).json({ error: "initData required" }); return; }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "DB not available" }); return; }
+
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(usersTable).set({ walletAddress: null }).where(eq(usersTable.telegramId, user.id));
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "DELETE /telegram/wallet failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -618,26 +692,44 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       logger.debug({ chat_id, firstName }, "/start handler entered");
 
       // ── Process referral code embedded in /start payload ──────────────────
-      // Format: /start GMR<referrerId>  e.g. /start GMR123456789
+      // Supported formats:
+      //   /start 123456789       — plain Telegram user ID  (preferred)
+      //   /start GMR123456789    — legacy GMR prefix format
       const startPayload = text.slice("/start".length).trim();
-      const referralMatch = startPayload.match(/^GMR(\d+)$/);
+      const referralMatch = startPayload.match(/^(?:GMR)?(\d{5,})$/);
       if (referralMatch) {
         const referrerId = Number(referralMatch[1]);
         if (referrerId && referrerId !== from.id) {
           const db = await getDb();
           if (db) {
             try {
+              const { pool } = await import("@workspace/db");
               const { usersTable } = await import("@workspace/db");
               const { eq, sql } = await import("drizzle-orm");
-              // Ensure referred_by column exists
-              const { pool } = await import("@workspace/db");
+              // Ensure schema
               await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS referred_by bigint").catch(() => {});
-              // Only register referral if user is brand new (no referred_by set yet)
-              const [existing] = await db
-                .select({ referredBy: usersTable.referredBy })
-                .from(usersTable)
-                .where(eq(usersTable.telegramId, from.id));
-              if (existing && existing.referredBy == null) {
+              await pool.query(`
+                CREATE TABLE IF NOT EXISTS gm_referrals (
+                  id          serial PRIMARY KEY,
+                  referrer_id bigint  NOT NULL,
+                  referred_id bigint  NOT NULL UNIQUE,
+                  reward_paid boolean NOT NULL DEFAULT false,
+                  created_at  timestamp NOT NULL DEFAULT NOW()
+                )
+              `).catch(() => {});
+
+              // Only credit once: check gm_referrals table
+              const existing = await pool.query(
+                "SELECT id FROM gm_referrals WHERE referred_id=$1",
+                [from.id],
+              );
+              if (existing.rows.length === 0) {
+                // Insert referral record
+                await pool.query(
+                  "INSERT INTO gm_referrals (referrer_id, referred_id, reward_paid) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",
+                  [referrerId, from.id],
+                );
+                // Also store referred_by on the user row
                 await db
                   .update(usersTable)
                   .set({ referredBy: referrerId })

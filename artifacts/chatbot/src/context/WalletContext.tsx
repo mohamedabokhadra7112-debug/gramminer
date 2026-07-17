@@ -51,10 +51,12 @@ function storeWallet(addr: string | null) {
   } catch {}
 }
 
+/** Referral code is just the Telegram user ID (plain number string).
+ *  Format: https://t.me/BotName?start=<userId>
+ *  This is the canonical format — the server accepts both plain and GMR-prefixed. */
 function generateCode(): string {
   const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-  if (tgId) return `GMR${tgId}`;
-  return 'GMR' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  return tgId ? String(tgId) : '';
 }
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {

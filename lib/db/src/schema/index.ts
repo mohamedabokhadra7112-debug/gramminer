@@ -58,6 +58,19 @@ export const taskCompletionsTable = pgTable(
   (t) => [unique().on(t.telegramId, t.taskId)],
 );
 
+// ─── Referrals ────────────────────────────────────────────────────────────────
+export const referralsTable = pgTable(
+  "gm_referrals",
+  {
+    id: serial("id").primaryKey(),
+    referrerId: bigint("referrer_id", { mode: "number" }).notNull(),
+    referredId: bigint("referred_id", { mode: "number" }).notNull(),
+    rewardPaid: boolean("reward_paid").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.referredId)], // each new user can only have one referrer
+);
+
 // ─── Mandatory channels ───────────────────────────────────────────────────────
 export const channelsTable = pgTable("gm_channels", {
   id: serial("id").primaryKey(),
