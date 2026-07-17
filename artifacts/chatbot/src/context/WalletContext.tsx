@@ -120,26 +120,72 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
-  const claimEarnings = () => {
-    const amount = +(poolWallet + sessionEarnings).toFixed(6);
-    if (amount <= 0) return;
+  // Keep a stable ref to the latest sessionEarnings so async handlers always
+  // read the current value without stale-closure issues.
+  const sessionEarningsRef = useRef(sessionEarnings);
+  useEffect(() => { sessionEarningsRef.current = sessionEarnings; }, [sessionEarnings]);
 
+  // Prevent concurrent saves (auto-save + manual claim racing each other).
+  const isSavingRef = useRef(false);
+
+  /**
+   * Core persist function — sends `amount` to the server and updates local
+   * state on success.  Falls back to localStorage if the API is unavailable
+   * so no earnings are silently discarded.
+   * Used by both manual claimEarnings and the background auto-save.
+   */
+  const persistEarnings = useCallback(async (amount: number): Promise<void> => {
+    if (amount <= 0 || isSavingRef.current) return;
+    isSavingRef.current = true;
+    try {
+      const { balance } = await telegramApiPost<{ balance: number }>('/telegram/claim', { amount });
+      setHoldingWallet(balance);
+      setSessionEarnings(0);
+    } catch {
+      // API unavailable — keep earnings in localStorage so they survive a refresh.
+      const newBalance = getStoredBalance() + amount;
+      setHoldingWallet(newBalance);
+      setSessionEarnings(0);
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [setHoldingWallet]);
+
+  /**
+   * Auto-save:
+   *   1. Every 60 s — so earnings accumulate in the DB while the app is open.
+   *   2. On visibilitychange → hidden — catches the moment the user closes the
+   *      bot or switches away, ensuring earnings are not lost even if Claim is
+   *      never pressed.
+   */
+  useEffect(() => {
+    const save = () => {
+      const amount = +sessionEarningsRef.current.toFixed(6);
+      if (amount > 0) persistEarnings(amount);
+    };
+
+    // Periodic save every 60 seconds
+    const interval = setInterval(save, 60_000);
+
+    // Immediate save when the WebApp goes to the background / is closed
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') save();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [persistEarnings]);
+
+  const claimEarnings = useCallback(() => {
+    const amount = +(poolWallet + sessionEarningsRef.current).toFixed(6);
+    if (amount <= 0) return;
     setIsClaiming(true);
     setClaimError(null);
-
-    telegramApiPost<{ balance: number }>('/telegram/claim', { amount })
-      .then(({ balance }) => {
-        setHoldingWallet(balance);
-        setSessionEarnings(0);
-      })
-      .catch(err => {
-        console.error('Claim API failed, saving locally:', err);
-        const newBalance = getStoredBalance() + amount;
-        setHoldingWallet(newBalance);
-        setSessionEarnings(0);
-      })
-      .finally(() => setIsClaiming(false));
-  };
+    persistEarnings(amount).finally(() => setIsClaiming(false));
+  }, [poolWallet, persistEarnings]);
 
   const addReferral = () => {
     setReferralCount(prev => prev + 1);
