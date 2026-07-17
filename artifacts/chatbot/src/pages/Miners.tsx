@@ -154,7 +154,7 @@ export default function Miners() {
               totalPending > 0 ? (
                 <>
                   <div className="text-green-400 font-bold text-sm">
-                    +{totalPending.toLocaleString(undefined, { maximumFractionDigits: 2 })} GRAM ready!
+                    +{totalPending.toLocaleString(undefined, { maximumFractionDigits: 2 })} gram ready!
                   </div>
                   <div className="text-gray-400 text-xs mt-0.5">24h mining cycle complete</div>
                 </>
@@ -247,13 +247,13 @@ export default function Miners() {
                     <div>
                       <p className="text-gray-400 text-xs">Not purchased</p>
                       <p className="text-green-500/70 text-xs mt-0.5">
-                        Earns {(miner.baseCost * miner.dailyPct).toLocaleString(undefined, { maximumFractionDigits: 2 })} GRAM/day at L1
+                        Earns {(miner.baseCost * miner.dailyPct).toLocaleString(undefined, { maximumFractionDigits: 2 })} gram/day at L1
                       </p>
                     </div>
                   ) : (
                     <div>
                       <p className="text-green-400 text-xs font-semibold">
-                        {daily.toLocaleString(undefined, { maximumFractionDigits: 2 })} GRAM / 24h
+                        {daily.toLocaleString(undefined, { maximumFractionDigits: 2 })} gram / 24h
                       </p>
                       <p className="text-blue-400/80 text-xs">
                         {(miner.dailyPct * 100)}% daily · L{level}/{MAX_LEVEL}
@@ -310,7 +310,7 @@ export default function Miners() {
       <div className="relative z-10 mb-4 rounded-2xl bg-black/50 border border-white/10 p-4">
         <div className="grid grid-cols-2 gap-y-2 text-xs text-gray-400">
           <span>Exchange Rate</span>
-          <span className="text-right font-bold text-primary">700 GRAM = 1 TON</span>
+          <span className="text-right font-bold text-primary">700 gram = 1 TON</span>
 
           <span>Upgrade cost</span>
           <span className="text-right text-green-400">+10% per level</span>

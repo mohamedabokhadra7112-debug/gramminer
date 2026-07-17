@@ -7,26 +7,26 @@ import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
 import WalletModal from '@/components/WalletModal';
 
 // ─── Swap Panel ───────────────────────────────────────────────────────────────
-const GMR_PER_GRAM = 700; // 700 GMR = 1 Gram (TON)
+const GRAM_PER_TON = 700; // 700 gram = 1 TON
 
 function SwapPanel({ onClose }: { onClose: () => void }) {
   const { holdingWallet, sessionEarnings } = useWallet();
   const totalGmr = holdingWallet + sessionEarnings;
 
-  const [direction, setDirection] = useState<'gmr_to_gram' | 'gram_to_gmr'>('gmr_to_gram');
+  const [direction, setDirection] = useState<'gram_to_ton' | 'ton_to_gram'>('gram_to_ton');
   const [inputVal, setInputVal]   = useState('');
 
-  const fromLabel = direction === 'gmr_to_gram' ? 'GMR' : 'Gram';
-  const toLabel   = direction === 'gmr_to_gram' ? 'Gram' : 'GMR';
+  const fromLabel = direction === 'gram_to_ton' ? 'gram' : 'TON';
+  const toLabel   = direction === 'gram_to_ton' ? 'TON' : 'gram';
 
   const inputNum = parseFloat(inputVal) || 0;
-  const outputNum = direction === 'gmr_to_gram'
-    ? inputNum / GMR_PER_GRAM
-    : inputNum * GMR_PER_GRAM;
+  const outputNum = direction === 'gram_to_ton'
+    ? inputNum / GRAM_PER_TON
+    : inputNum * GRAM_PER_TON;
 
-  const rate = direction === 'gmr_to_gram'
-    ? `1 Gram = ${GMR_PER_GRAM} GMR`
-    : `1 GMR = ${(1 / GMR_PER_GRAM).toFixed(4)} Gram`;
+  const rate = direction === 'gram_to_ton'
+    ? `1 TON = ${GRAM_PER_TON} gram`
+    : `1 gram = ${(1 / GRAM_PER_TON).toFixed(4)} TON`;
 
   return (
     <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
@@ -51,7 +51,7 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted-foreground font-bold uppercase">من</span>
             <span className="text-xs text-muted-foreground">
-              {direction === 'gmr_to_gram' ? `الرصيد: ${totalGmr.toFixed(4)} GMR` : ''}
+              {direction === 'gram_to_ton' ? `الرصيد: ${totalGmr.toFixed(4)} gram` : ''}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -73,7 +73,7 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
         <div className="flex justify-center">
           <button
             onClick={() => {
-              setDirection(d => d === 'gmr_to_gram' ? 'gram_to_gmr' : 'gmr_to_gram');
+              setDirection(d => d === 'gram_to_ton' ? 'ton_to_gram' : 'gram_to_ton');
               setInputVal('');
             }}
             className="w-11 h-11 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary hover:bg-primary/30 transition-colors"
@@ -152,7 +152,7 @@ function WithdrawPanel({ onClose }: { onClose: () => void }) {
     <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
       <div className="flex items-center gap-3 px-4 pt-8 pb-4 border-b border-white/10">
         <button onClick={onClose} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors text-lg font-bold">‹</button>
-        <h2 className="text-lg font-black text-white">سحب GMR</h2>
+        <h2 className="text-lg font-black text-white">سحب gram</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pt-6 space-y-4">
@@ -169,12 +169,12 @@ function WithdrawPanel({ onClose }: { onClose: () => void }) {
         {/* Balance */}
         <div className="bg-primary/10 border border-primary/30 rounded-2xl p-4 text-center">
           <div className="text-xs text-white/60 mb-1">الرصيد المتاح للسحب</div>
-          <div className="text-3xl font-black text-primary">{holdingWallet.toFixed(4)} GMR</div>
+          <div className="text-3xl font-black text-primary">{holdingWallet.toFixed(4)} gram</div>
         </div>
 
         {/* Amount input */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-          <div className="text-xs text-muted-foreground font-bold uppercase">مبلغ السحب (GMR)</div>
+          <div className="text-xs text-muted-foreground font-bold uppercase">مبلغ السحب (gram)</div>
           <input
             type="number"
             value={amount}
@@ -187,7 +187,7 @@ function WithdrawPanel({ onClose }: { onClose: () => void }) {
             onClick={() => setAmount(holdingWallet.toFixed(4))}
             className="text-xs text-primary font-bold hover:underline"
           >
-            الكل ({holdingWallet.toFixed(4)} GMR)
+            الكل ({holdingWallet.toFixed(4)} gram)
           </button>
         </div>
 
@@ -217,7 +217,7 @@ function WithdrawPanel({ onClose }: { onClose: () => void }) {
             {history.map(h => (
               <div key={h.id} className="bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between">
                 <div>
-                  <div className="font-bold text-white text-sm">{h.amount.toFixed(4)} GMR</div>
+                  <div className="font-bold text-white text-sm">{h.amount.toFixed(4)} gram</div>
                   <div className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleDateString('ar')}</div>
                 </div>
                 <div className={`text-xs font-bold ${statusColor(h.status)}`}>{statusLabel(h.status)}</div>

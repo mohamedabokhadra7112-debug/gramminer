@@ -48,6 +48,7 @@ async function ensureSchema() {
       )
     `);
     await pool.query(`ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS referred_by bigint`);
+    await pool.query(`ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0`);
   } catch (e) {
     logger.warn({ e }, "withdraw schema migration skipped");
   }
@@ -136,7 +137,10 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
     if (!dbUser.walletAddress) { res.status(400).json({ error: "No wallet connected. Connect your TON wallet first." }); return; }
     if ((dbUser.balance ?? 0) < amt) { res.status(400).json({ error: "Insufficient balance" }); return; }
 
-    // Enforce admin-set withdrawal limits
+    // Enforce withdrawal limits (min 0.1 gram hardcoded floor; admin can raise it)
+    if (amt < 0.1) {
+      res.status(400).json({ error: "الحد الأدنى للسحب هو 0.1 gram" }); return;
+    }
     try {
       const { settingsTable } = await import("@workspace/db");
       for (const key of ["min_withdrawal", "max_withdrawal"]) {
@@ -144,10 +148,10 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
         if (row?.value) {
           const limit = Number(row.value);
           if (key === "min_withdrawal" && amt < limit) {
-            res.status(400).json({ error: `الحد الأدنى للسحب هو ${limit} GMR` }); return;
+            res.status(400).json({ error: `الحد الأدنى للسحب هو ${limit} gram` }); return;
           }
           if (key === "max_withdrawal" && amt > limit) {
-            res.status(400).json({ error: `الحد الأقصى للسحب هو ${limit} GMR` }); return;
+            res.status(400).json({ error: `الحد الأقصى للسحب هو ${limit} gram` }); return;
           }
         }
       }
@@ -175,7 +179,7 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
         adminId,
         `💸 <b>طلب سحب جديد #${withdrawalId}</b>\n\n` +
         `👤 المستخدم: ${firstName} (${username})\n` +
-        `💰 المبلغ: ${amt.toFixed(4)} GMR\n` +
+        `💰 المبلغ: ${amt.toFixed(4)} gram\n` +
         `📍 المحفظة: <code>${dbUser.walletAddress}</code>\n\n` +
         `للموافقة: /approve_${withdrawalId}\n` +
         `للرفض: /reject_${withdrawalId}`,
@@ -258,7 +262,7 @@ router.post("/admin/withdrawals/:id/approve", requireAdmin, async (req, res) => 
       // Notify user
       await notifyTelegram(
         w.telegram_id,
-        `✅ <b>تم تأكيد طلب السحب!</b>\n\n💰 المبلغ: ${w.amount} GMR\n📍 المحفظة: <code>${w.wallet_address}</code>\n🔗 TX: ${txHash}`,
+        `✅ <b>تم تأكيد طلب السحب!</b>\n\n💰 المبلغ: ${w.amount} gram\n📍 المحفظة: <code>${w.wallet_address}</code>\n🔗 TX: ${txHash}`,
       );
       res.json({ ok: true, txHash });
     } else {
@@ -313,7 +317,7 @@ router.post("/admin/withdrawals/:id/reject", requireAdmin, async (req, res) => {
     // Notify user
     await notifyTelegram(
       w.telegram_id,
-      `❌ <b>تم رفض طلب السحب</b>\n\n💰 المبلغ: ${w.amount} GMR\nالسبب: ${reason}\n\n✅ تم إعادة الرصيد لحسابك.`,
+      `❌ <b>تم رفض طلب السحب</b>\n\n💰 المبلغ: ${w.amount} gram\nالسبب: ${reason}\n\n✅ تم إعادة الرصيد لحسابك.`,
     );
 
     res.json({ ok: true });

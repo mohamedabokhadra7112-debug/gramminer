@@ -288,7 +288,7 @@ function TasksSection() {
       <div className="bg-black/40 rounded-xl p-3 space-y-2 border border-white/5">
         <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="عنوان المهمة *" />
         <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="الوصف (اختياري)" />
-        <Input value={form.reward} onChange={e => setForm(f => ({ ...f, reward: e.target.value }))} type="number" placeholder="المكافأة GMR" />
+        <Input value={form.reward} onChange={e => setForm(f => ({ ...f, reward: e.target.value }))} type="number" placeholder="المكافأة gram" />
         <Input value={form.channelUsername} onChange={e => setForm(f => ({ ...f, channelUsername: e.target.value }))} placeholder="يوزر القناة (اختياري) مثل: @mychannel" dir="ltr" />
         <label className="flex items-center gap-2 cursor-pointer text-sm text-white">
           <input type="checkbox" checked={form.isDaily} onChange={e => setForm(f => ({ ...f, isDaily: e.target.checked }))} className="w-4 h-4 accent-primary" />
@@ -302,7 +302,7 @@ function TasksSection() {
           <div key={t.id} className={`bg-black/40 rounded-xl p-3 border border-white/5 flex items-start justify-between gap-2 ${t.isHidden ? 'opacity-50' : ''}`}>
             <div className="flex-1 min-w-0">
               <div className="font-bold text-white text-sm truncate">{t.title}</div>
-              <div className="text-xs text-muted-foreground">{t.reward} GMR{t.isDaily ? ' · يومية' : ''}{t.channelUsername ? ` · 📢 @${t.channelUsername}` : ''}</div>
+              <div className="text-xs text-muted-foreground">{t.reward} gram{t.isDaily ? ' · يومية' : ''}{t.channelUsername ? ` · 📢 @${t.channelUsername}` : ''}</div>
               {t.description && <div className="text-xs text-muted-foreground/70 mt-0.5 truncate">{t.description}</div>}
             </div>
             <div className="flex gap-1 flex-shrink-0">
@@ -331,7 +331,7 @@ function ReferralSection() {
   useEffect(() => {
     api<Record<string, string>>('GET', '/admin/settings').then(s => {
       setPrice(s['referral_price'] || '1');
-      setDesc(s['referral_description'] || 'احصل على مكافأة GMR مقابل كل صديق تدعوه!');
+      setDesc(s['referral_description'] || 'احصل على مكافأة coin مقابل كل صديق تدعوه!');
     }).finally(() => setLoading(false));
   }, []);
 
@@ -349,7 +349,7 @@ function ReferralSection() {
   if (loading) return <div className="text-muted-foreground text-sm">جار التحميل...</div>;
   return (
     <div className="space-y-2">
-      <label className="text-xs text-muted-foreground">قيمة المكافأة (GMR) لكل صديق:</label>
+      <label className="text-xs text-muted-foreground">قيمة المكافأة (coin) لكل صديق:</label>
       <Input value={price} onChange={e => setPrice(e.target.value)} type="number" step="0.001" min="0" className="text-center text-xl font-black" />
       <label className="text-xs text-muted-foreground">وصف الإحالة:</label>
       <textarea
@@ -417,7 +417,7 @@ function UsersSection() {
           className="w-full text-left bg-black/40 rounded-xl p-3 border border-white/5 hover:border-primary/30 transition-colors">
           <div className="font-bold text-white text-sm">{r.firstName ?? r.username ?? 'مجهول'}</div>
           <div className="text-xs text-muted-foreground font-mono">ID: {r.telegramId} {r.username && `· @${r.username}`}</div>
-          <div className="text-xs text-primary font-bold mt-0.5">{r.balance.toFixed(4)} GMR</div>
+          <div className="text-xs text-primary font-bold mt-0.5">{r.balance.toFixed(4)} gram</div>
         </button>
       ))}
 
@@ -439,7 +439,7 @@ function UsersSection() {
           </div>
 
           <div className="bg-black/40 rounded-xl p-3 text-center">
-            <div className="text-2xl font-black text-primary">{u.balance.toFixed(4)} GMR</div>
+            <div className="text-2xl font-black text-primary">{u.balance.toFixed(4)} gram</div>
           </div>
 
           {/* Balance adjustment */}
@@ -629,7 +629,7 @@ function WithdrawalsSection() {
             <div>
               <div className="font-bold text-white text-sm">{w.first_name ?? w.username ?? w.telegram_id}</div>
               <div className="text-xs text-muted-foreground font-mono">ID: {w.telegram_id}</div>
-              <div className="text-primary font-black text-sm mt-0.5">{w.amount.toFixed(4)} GMR</div>
+              <div className="text-primary font-black text-sm mt-0.5">{w.amount.toFixed(4)} gram</div>
               <div className="text-[10px] font-mono text-white/50 break-all mt-0.5">{w.wallet_address}</div>
               <div className="text-xs text-muted-foreground mt-0.5">{new Date(w.created_at).toLocaleString('ar')}</div>
             </div>
@@ -670,7 +670,7 @@ function LimitsSection() {
 
   useEffect(() => {
     api<Record<string, string>>('GET', '/admin/settings').then(s => {
-      setVals({ minWithdraw: s['min_withdrawal'] || '1', maxWithdraw: s['max_withdrawal'] || '1000', minDeposit: s['min_deposit'] || '0.1', maxDeposit: s['max_deposit'] || '10000' });
+      setVals({ minWithdraw: s['min_withdrawal'] || '0.1', maxWithdraw: s['max_withdrawal'] || '1000', minDeposit: s['min_deposit'] || '0.1', maxDeposit: s['max_deposit'] || '10000' });
     }).finally(() => setLoading(false));
   }, []);
 
@@ -692,14 +692,14 @@ function LimitsSection() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">حدود السحب (GMR)</p>
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">حدود السحب (gram)</p>
         <div className="grid grid-cols-2 gap-2">
           <div><label className="text-xs text-muted-foreground">الحد الأدنى</label><Input value={vals.minWithdraw} onChange={e => setVals(v => ({ ...v, minWithdraw: e.target.value }))} type="number" step="0.1" /></div>
           <div><label className="text-xs text-muted-foreground">الحد الأقصى</label><Input value={vals.maxWithdraw} onChange={e => setVals(v => ({ ...v, maxWithdraw: e.target.value }))} type="number" /></div>
         </div>
       </div>
       <div className="space-y-2">
-        <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">حدود الإيداع (GMR)</p>
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">حدود الإيداع (gram)</p>
         <div className="grid grid-cols-2 gap-2">
           <div><label className="text-xs text-muted-foreground">الحد الأدنى</label><Input value={vals.minDeposit} onChange={e => setVals(v => ({ ...v, minDeposit: e.target.value }))} type="number" step="0.1" /></div>
           <div><label className="text-xs text-muted-foreground">الحد الأقصى</label><Input value={vals.maxDeposit} onChange={e => setVals(v => ({ ...v, maxDeposit: e.target.value }))} type="number" /></div>

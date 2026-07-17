@@ -91,7 +91,7 @@ export default function Tasks() {
       const data = await telegramApiPost<{ ok: boolean; reward: number; balance: number }>('/tasks/complete', { taskId: task.id });
       if (data.ok) {
         setDone(prev => new Set(prev).add(task.id));
-        setFeedback({ id: task.id, msg: `✅ +${data.reward} GMR`, ok: true });
+        setFeedback({ id: task.id, msg: `✅ +${data.reward} gram`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }
     } catch (e: unknown) {
@@ -121,7 +121,7 @@ export default function Tasks() {
       const data = await telegramApiPost<{ ok: boolean; reward: number; balance: number }>('/tasks/complete', { taskId: task.id });
       if (data.ok) {
         setDone(prev => new Set(prev).add(task.id));
-        setFeedback({ id: task.id, msg: `✅ +${data.reward} GMR`, ok: true });
+        setFeedback({ id: task.id, msg: `✅ +${data.reward} gram`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }
     } catch (e: unknown) {
@@ -202,7 +202,7 @@ export default function Tasks() {
                       <p className="text-xs text-primary/70 mt-0.5">📢 @{task.channelUsername}</p>
                     )}
                     <div className={`text-xs font-black mt-0.5 ${completed ? 'text-muted-foreground' : 'text-primary'}`}>
-                      +{task.reward} GMR{task.isDaily ? ' · يومية' : ''}
+                      +{task.reward} gram{task.isDaily ? ' · يومية' : ''}
                     </div>
                   </div>
                 </div>

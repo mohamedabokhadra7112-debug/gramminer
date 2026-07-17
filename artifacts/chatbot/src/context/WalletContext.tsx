@@ -17,6 +17,7 @@ type WalletContextType = {
   connectWallet: (address: string) => void;
   addReferral: () => void;
   refreshReferrals: () => void;
+  addClickEarning: (amount: number) => void;
 };
 
 const WalletContext = createContext<WalletContextType | null>(null);
@@ -52,7 +53,7 @@ function storeWallet(addr: string | null) {
 
 /** Referral code is just the Telegram user ID (plain number string).
  *  Format: https://t.me/BotName?start=<userId>
- *  This is the canonical format — the server accepts both plain and GMR-prefixed. */
+ *  This is the canonical format — gram address, no prefix required. */
 function generateCode(): string {
   const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
   return tgId ? String(tgId) : '';
@@ -112,7 +113,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (isVerified) fetchReferrals();
   }, [isVerified, fetchReferrals]);
 
-  // Passive earnings: +0.001 GMR / second
+  // Passive earnings: +0.001 gram / second
   useEffect(() => {
     const interval = setInterval(() => {
       setSessionEarnings(prev => prev + 0.001);
@@ -194,12 +195,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const refreshReferrals = () => { fetchReferrals(); };
 
+  /** Add gram earnings from miners — alias for persistEarnings so Miners.tsx can call it directly. */
+  const addClickEarning = useCallback((amount: number) => {
+    persistEarnings(amount);
+  }, [persistEarnings]);
+
   return (
     <WalletContext.Provider value={{
       holdingWallet, poolWallet, sessionEarnings,
       referralBalance, walletAddress, minerLevel,
       referralCode, referralCount, isClaiming, claimError,
-      claimEarnings, connectWallet, addReferral, refreshReferrals,
+      claimEarnings, connectWallet, addReferral, refreshReferrals, addClickEarning,
     }}>
       {children}
     </WalletContext.Provider>

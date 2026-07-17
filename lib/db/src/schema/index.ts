@@ -18,6 +18,7 @@ export const usersTable = pgTable("gm_users", {
   firstName: text("first_name"),
   lastName: text("last_name"),
   balance: doublePrecision("balance").notNull().default(0),
+  coins: integer("coins").notNull().default(0),
   walletAddress: text("wallet_address"),
   isBanned: boolean("is_banned").notNull().default(false),
   restrictWithdrawal: boolean("restrict_withdrawal").notNull().default(false),

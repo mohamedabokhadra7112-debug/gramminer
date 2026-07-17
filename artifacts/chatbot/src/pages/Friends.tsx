@@ -151,7 +151,7 @@ export default function Friends() {
                   </div>
                   <span className="text-sm text-white font-medium">{t('friends_friend_label')} {i + 1}</span>
                 </div>
-                <span className="text-xs text-success font-bold">+1 GMR</span>
+                <span className="text-xs text-success font-bold">+1 coin</span>
               </div>
             ))}
           </div>

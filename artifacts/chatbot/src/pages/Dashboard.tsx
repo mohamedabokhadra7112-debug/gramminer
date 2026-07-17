@@ -67,13 +67,13 @@ export default function Dashboard() {
       {/* Balances */}
       <div className="flex flex-col items-center mt-3 relative z-10 px-4">
         <div className="text-[clamp(1.5rem,7vw,2rem)] font-black text-white mb-2 text-center px-2">
-          {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} GMR
+          {totalAssets.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })} gram
         </div>
         <div className="flex gap-2 w-full max-w-sm">
           <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
             <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">{t('dashboard_holding_wallet')}</div>
             <div className="text-sm font-bold text-white">
-              {holdingWallet.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} GMR
+              {holdingWallet.toLocaleString(undefined, { minimumFractionDigits: 3, maximumFractionDigits: 3 })} gram
             </div>
           </div>
         </div>
@@ -94,7 +94,7 @@ export default function Dashboard() {
           <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
             <div className="text-[clamp(2.2rem,9vw,3.25rem)] font-black text-[#3a2200] relative z-10 tracking-tighter">
-              GRAM
+              gram
             </div>
           </div>
 

@@ -25,10 +25,10 @@
 
   "friends_title": "FRIENDS",
   "friends_total_referrals": "Total Referrals",
-  "friends_gmr_rewards": "GMR Rewards",
+  "friends_gmr_rewards": "Coin Rewards",
   "friends_purchase_only": "Purchase only",
   "friends_invite_title": "Invite a Friend!",
-  "friends_invite_desc": "Earn {reward} GMR for every friend who registers",
+  "friends_invite_desc": "Earn {reward} coin for every friend who registers",
   "friends_share": "Share",
   "friends_copy": "Copy",
   "friends_copied": "Done!",
@@ -36,13 +36,13 @@
   "friends_how_it_works": "⚡ How It Works",
   "friends_step1": "Share your link with friends",
   "friends_step2": "When your friend registers via your link",
-  "friends_step3": "You get 0.01 GMR instantly",
-  "friends_step4": "Use rewards to buy more powerful mining rigs",
+  "friends_step3": "You get 1 coin instantly",
+  "friends_step4": "Use coins to buy more powerful mining rigs",
   "friends_your_friends": "Your Friends ({count})",
   "friends_no_friends": "No friends yet",
   "friends_share_to_earn": "Share your link and start earning!",
   "friends_friend_label": "Friend",
-  "friends_share_text": "⛏️ Join GramMiner and start mining GMR!\n\n💰 Get a free mining rig when you sign up\n\n👇 Register via my link:\n",
+  "friends_share_text": "⛏️ Join GramMiner and start mining gram!\n\n💰 Get a free mining rig when you sign up\n\n👇 Register via my link:\n",
 
   "profile_level": "Level",
   "profile_connected": "✅ Connected",
@@ -50,7 +50,7 @@
   "profile_wallet_connection": "Wallet Connection",
   "profile_wallet_desc": "Manage connected wallets",
   "profile_swap": "Swap",
-  "profile_swap_desc": "Convert GMR ↔ Gram (700 GMR = 1 Gram)",
+  "profile_swap_desc": "Convert gram to TON (700 gram = 1 TON)",
   "profile_withdraw": "Withdraw",
   "profile_withdraw_desc": "Withdraw your balance to TON wallet",
   "profile_settings": "Settings",
@@ -66,6 +66,6 @@
 
   "bot_missing_channels": "⚠️ <b>You must join the following channels first:</b>\n\n{channels}\n\nAfter joining, press /start again to continue.",
   "bot_open_button": "⛏️ Open GramMiner",
-  "bot_balance": "💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!",
-  "bot_welcome_default": "⛏️ <b>Welcome to GramMiner, {first_name}!</b>\n\n💰 Start mining GMR by tapping the coin!\n🏆 Compete with friends and earn rewards!\n\n👇 Press the button below to start:"
+  "bot_balance": "💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more gram!",
+  "bot_welcome_default": "⛏️ <b>Welcome to GramMiner, {first_name}!</b>\n\n💰 Start mining gram by tapping the coin!\n🏆 Compete with friends and earn rewards!\n\n👇 Press the button below to start:"
 }

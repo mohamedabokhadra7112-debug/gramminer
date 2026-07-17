@@ -6,8 +6,10 @@ type TelegramUser = {
   first_name?: string;
   last_name?: string;
   username?: string;
-  /** GMR balance persisted in the Neon DB, as of the last /telegram/auth sync. */
+  /** gram balance persisted in the DB, as of the last /telegram/auth sync. */
   balance?: number;
+  /** coin balance persisted in the DB (used for miner purchases). */
+  coins?: number;
 };
 
 type TelegramUserContextType = {

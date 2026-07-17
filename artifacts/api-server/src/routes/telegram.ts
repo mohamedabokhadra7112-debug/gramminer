@@ -134,7 +134,7 @@ async function getWelcomeMessage(firstName: string): Promise<string> {
   }
   return (
     `⛏️ <b>Welcome to GramMiner, ${firstName}!</b>\n\n` +
-    `💰 Start mining GMR by tapping the coin!\n` +
+    `💰 Start mining gram by tapping the coin!\n` +
     `🏆 Compete with friends and earn rewards!\n\n` +
     `👇 Press the button below to start:`
   );
@@ -182,7 +182,7 @@ async function upsertUser(user: {
   } catch { /* best-effort */ }
 }
 
-/** Fetches the user's persisted balance from the DB. Returns 0 if unavailable. */
+/** Fetches the user's persisted gram balance from the DB. Returns 0 if unavailable. */
 async function getUserBalance(telegramId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
@@ -194,6 +194,26 @@ async function getUserBalance(telegramId: number): Promise<number> {
       .from(usersTable)
       .where(eq(usersTable.telegramId, telegramId));
     return row?.balance ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Fetches the user's persisted coin balance from the DB. Returns 0 if unavailable. */
+async function getUserCoins(telegramId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  try {
+    // Ensure coins column exists (lazy migration)
+    const { pool } = await import("@workspace/db");
+    await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0").catch(() => {});
+    const { usersTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db
+      .select({ coins: usersTable.coins })
+      .from(usersTable)
+      .where(eq(usersTable.telegramId, telegramId));
+    return row?.coins ?? 0;
   } catch {
     return 0;
   }
@@ -225,14 +245,14 @@ const BOT_MSG: Record<"ar" | "en", Record<string, string>> = {
   ar: {
     missing_channels: "⚠️ <b>يجب عليك الانضمام للقنوات التالية أولاً:</b>\n\n{channels}\n\nبعد الانضمام، اضغط /start مجدداً للمتابعة.",
     open_button:      "⛏️ افتح GramMiner",
-    balance:          "💰 <b>رصيدك في GramMiner</b>\n\nافتح التطبيق لرؤية رصيدك الكامل!\n⛏️ استمر في التعدين لكسب المزيد من GMR!",
-    welcome_default:  "<tg-emoji emoji-id=\"5339536521009571338\">👋</tg-emoji> مرحباً بك في GramMiner، {first_name}!\n\n<tg-emoji emoji-id=\"5409048419211682843\">💵</tg-emoji> ابدأ تعدين GMR بالضغط على العملة!\n<tg-emoji emoji-id=\"5299015076529872050\">🏆</tg-emoji> نافس أصدقاءك واكسب مكافآت!\n\n<tg-emoji emoji-id=\"5852805286342957224\">👇</tg-emoji> اضغط الزر أدناه للبدء:",
+    balance:          "💰 <b>رصيدك في GramMiner</b>\n\nافتح التطبيق لرؤية رصيدك الكامل!\n⛏️ استمر في التعدين لكسب المزيد من gram!",
+    welcome_default:  "<tg-emoji emoji-id=\"5339536521009571338\">👋</tg-emoji> مرحباً بك في GramMiner، {first_name}!\n\n<tg-emoji emoji-id=\"5409048419211682843\">💵</tg-emoji> ابدأ تعدين gram بالضغط على العملة!\n<tg-emoji emoji-id=\"5299015076529872050\">🏆</tg-emoji> نافس أصدقاءك واكسب مكافآت!\n\n<tg-emoji emoji-id=\"5852805286342957224\">👇</tg-emoji> اضغط الزر أدناه للبدء:",
   },
   en: {
     missing_channels: "⚠️ <b>You must join the following channels first:</b>\n\n{channels}\n\nAfter joining, press /start again to continue.",
     open_button:      "⛏️ Open GramMiner",
-    balance:          "💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more GMR!",
-    welcome_default:  "<tg-emoji emoji-id=\"5339536521009571338\">👋</tg-emoji> Welcome to GramMiner, {first_name}!\n\n<tg-emoji emoji-id=\"5409048419211682843\">💵</tg-emoji> Start mining GMR by tapping the coin!\n<tg-emoji emoji-id=\"5299015076529872050\">🏆</tg-emoji> Compete with friends and earn rewards!\n\n<tg-emoji emoji-id=\"5852805286342957224\">👇</tg-emoji> Press the button below to start:",
+    balance:          "💰 <b>Your GramMiner Balance</b>\n\nOpen the app to see your full balance!\n⛏️ Keep mining to earn more gram!",
+    welcome_default:  "<tg-emoji emoji-id=\"5339536521009571338\">👋</tg-emoji> Welcome to GramMiner, {first_name}!\n\n<tg-emoji emoji-id=\"5409048419211682843\">💵</tg-emoji> Start mining gram by tapping the coin!\n<tg-emoji emoji-id=\"5299015076529872050\">🏆</tg-emoji> Compete with friends and earn rewards!\n\n<tg-emoji emoji-id=\"5852805286342957224\">👇</tg-emoji> Press the button below to start:",
   },
 };
 
@@ -298,7 +318,7 @@ async function getLocalizedWelcomeMessage(
 
 // Validates Telegram WebApp initData, syncs the user to the DB (register on
 // first sight / refresh basic info on return), and returns the verified user
-// together with their persisted GMR balance so the Frontend never shows a
+// together with their persisted gram balance so the Frontend never shows a
 // stale or default "Miner" placeholder once a user has interacted before.
 router.post("/telegram/auth", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
@@ -319,10 +339,10 @@ router.post("/telegram/auth", async (req, res): Promise<void> => {
     last_name: user.last_name,
     username: user.username,
   });
-  const balance = await getUserBalance(user.id);
+  const [balance, coins] = await Promise.all([getUserBalance(user.id), getUserCoins(user.id)]);
 
   const adminId = getAdminId();
-  res.status(200).json({ user: { ...user, balance }, isAdmin: adminId > 0 && user.id === adminId });
+  res.status(200).json({ user: { ...user, balance, coins }, isAdmin: adminId > 0 && user.id === adminId });
 });
 
 // Securely persists a mining-session claim. The claimed amount is added to
@@ -617,7 +637,7 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
     try {
       if (data === "admin:stats") {
         const db = await getDb();
-        let statsText = `📊 <b>الإحصائيات</b>\n\n🤖 Bot: GramMiner\n💎 Token: GMR\n✅ Status: Running`;
+        let statsText = `📊 <b>الإحصائيات</b>\n\n🤖 Bot: GramMiner\n💎 Token: gram\n✅ Status: Running`;
         if (db) {
           try {
             const { usersTable } = await import("@workspace/db");
@@ -723,7 +743,7 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       // ── Process referral code embedded in /start payload ──────────────────
       // Supported formats:
       //   /start 123456789       — plain Telegram user ID  (preferred)
-      //   /start GMR123456789    — legacy GMR prefix format
+      //   /start 123456789       — standard referral format
       //
       // Guards (all must pass before crediting):
       //   1. isNewUser  — only first-time users count as a valid referral
@@ -779,7 +799,7 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
                     .update(usersTable)
                     .set({ referredBy: referrerId })
                     .where(eq(usersTable.telegramId, from.id));
-                  // Credit the referrer's balance — read reward from settings, fall back to 1
+                  // Credit the referrer's coins — read reward from settings, fall back to 1
                   let referralReward = 1;
                   try {
                     const { settingsTable } = await import("@workspace/db");
@@ -787,18 +807,20 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
                     const [priceRow] = await db.select().from(settingsTable).where(eqS(settingsTable.key, "referral_price"));
                     if (priceRow?.value) referralReward = Number(priceRow.value) || 1;
                   } catch { /* use default */ }
+                  // Ensure coins column exists before crediting
+                  await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0").catch(() => {});
                   await db
                     .update(usersTable)
-                    .set({ balance: sql`${usersTable.balance} + ${referralReward}` })
+                    .set({ coins: sql`${usersTable.coins} + ${referralReward}` })
                     .where(eq(usersTable.telegramId, referrerId));
-                  logger.info({ from: from.id, referrerId, reward: referralReward }, "Referral processed");
+                  logger.info({ from: from.id, referrerId, reward: referralReward }, "Referral processed — coins credited");
                   // Notify the referrer — wrapped in try/catch so a blocked bot
                   // or any Telegram error never crashes the overall /start flow
                   try {
                     await sendMessage(
                       token,
                       referrerId,
-                      `🎉 <b>تمت إحالة صديقك بنجاح!</b>\n\nانضم مستخدم جديد عبر رابط الإحالة الخاص بك.\n💰 تم إضافة <b>${referralReward} GMR</b> إلى رصيدك.`,
+                      `🎉 <b>تمت إحالة صديقك بنجاح!</b>\n\nانضم مستخدم جديد عبر رابط الإحالة الخاص بك.\n🪙 تم إضافة <b>${referralReward} coin</b> إلى رصيدك.`,
                     );
                   } catch (notifyErr) {
                     logger.warn({ notifyErr, referrerId }, "Referral notification failed (non-fatal)");
@@ -862,6 +884,59 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   }
 
   res.status(200).json({ ok: true });
+});
+
+// Deducts coins from the user's coin balance (for miner purchases/upgrades).
+// Uses optimistic UI on the client; this endpoint is the authoritative source of truth.
+router.post("/telegram/coins/spend", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const initData = req.body?.initData;
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "initData is required" }); return;
+  }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
+
+  const amount = Number(req.body?.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(amount)) {
+    res.status(400).json({ error: "Invalid amount — must be a positive integer" }); return;
+  }
+
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  try {
+    const { pool, usersTable } = await import("@workspace/db");
+    const { eq, sql } = await import("drizzle-orm");
+
+    // Ensure coins column exists (idempotent)
+    await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0").catch(() => {});
+
+    // Check current balance
+    const [row] = await db
+      .select({ coins: usersTable.coins })
+      .from(usersTable)
+      .where(eq(usersTable.telegramId, user.id));
+    const current = row?.coins ?? 0;
+
+    if (current < amount) {
+      res.status(400).json({ error: "Insufficient coin balance", coins: current }); return;
+    }
+
+    const [updated] = await db
+      .update(usersTable)
+      .set({ coins: sql`${usersTable.coins} - ${amount}` })
+      .where(eq(usersTable.telegramId, user.id))
+      .returning({ coins: usersTable.coins });
+
+    res.status(200).json({ ok: true, coins: updated?.coins ?? current - amount });
+  } catch (err) {
+    logger.error({ err, userId: user.id }, "POST /telegram/coins/spend failed");
+    res.status(500).json({ error: "Internal error" });
+  }
 });
 
 export default router;

@@ -25,10 +25,10 @@
 
   "friends_title": "الأصدقاء",
   "friends_total_referrals": "إجمالي الإحالات",
-  "friends_gmr_rewards": "مكافآت GMR",
+  "friends_gmr_rewards": "مكافآت coin",
   "friends_purchase_only": "للشراء فقط",
   "friends_invite_title": "!ادعُ صديق",
-  "friends_invite_desc": "هتكسب {reward} GMR لكل صديق يسجّل",
+  "friends_invite_desc": "هتكسب {reward} coin لكل صديق يسجّل",
   "friends_share": "مشاركة",
   "friends_copy": "نسخ",
   "friends_copied": "تم!",
@@ -36,13 +36,13 @@
   "friends_how_it_works": "⚡ كيف يشتغل النظام",
   "friends_step1": "شارك رابطك مع أصدقائك",
   "friends_step2": "لما صديقك يسجّل عن طريق رابطك",
-  "friends_step3": "هتاخد 0.01 GMR على حسابك فوراً",
-  "friends_step4": "استخدم المكافآت لشراء أجهزة تعدين أقوى",
+  "friends_step3": "هتاخد 1 coin على حسابك فوراً",
+  "friends_step4": "استخدم الـ coin لشراء أجهزة تعدين أقوى",
   "friends_your_friends": "أصدقائك ({count})",
   "friends_no_friends": "مفيش أصدقاء لسه",
   "friends_share_to_earn": "شارك رابطك وابدأ تكسب!",
   "friends_friend_label": "صديق",
-  "friends_share_text": "⛏️ انضم إلى GramMiner وابدأ تعدين GMR!\n\n💰 هتحصل على جهاز تعدين مجاني فور التسجيل\n\n👇 سجّل من رابطي:\n",
+  "friends_share_text": "⛏️ انضم إلى GramMiner وابدأ تعدين gram!\n\n💰 هتحصل على جهاز تعدين مجاني فور التسجيل\n\n👇 سجّل من رابطي:\n",
 
   "profile_level": "مستوى",
   "profile_connected": "✅ المحفظة مربوطة",
@@ -50,7 +50,7 @@
   "profile_wallet_connection": "ربط المحفظة",
   "profile_wallet_desc": "إدارة المحافظ المرتبطة",
   "profile_swap": "Swap",
-  "profile_swap_desc": "تحويل GMR ↔ Gram (700 GMR = 1 Gram)",
+  "profile_swap_desc": "تحويل gram إلى TON (700 gram = 1 TON)",
   "profile_withdraw": "سحب",
   "profile_withdraw_desc": "سحب رصيدك إلى محفظة TON",
   "profile_settings": "الإعدادات",
@@ -66,6 +66,6 @@
 
   "bot_missing_channels": "⚠️ <b>يجب عليك الانضمام للقنوات التالية أولاً:</b>\n\n{channels}\n\nبعد الانضمام، اضغط /start مجدداً للمتابعة.",
   "bot_open_button": "⛏️ افتح GramMiner",
-  "bot_balance": "💰 <b>رصيدك في GramMiner</b>\n\nافتح التطبيق لرؤية رصيدك الكامل!\n⛏️ استمر في التعدين لكسب المزيد من GMR!",
-  "bot_welcome_default": "⛏️ <b>مرحباً بك في GramMiner, {first_name}!</b>\n\n💰 ابدأ تعدين GMR بالضغط على العملة!\n🏆 نافس أصدقاءك واكسب مكافآت!\n\n👇 اضغط الزر أدناه للبدء:"
+  "bot_balance": "💰 <b>رصيدك في GramMiner</b>\n\nافتح التطبيق لرؤية رصيدك الكامل!\n⛏️ استمر في التعدين لكسب المزيد من gram!",
+  "bot_welcome_default": "⛏️ <b>مرحباً بك في GramMiner, {first_name}!</b>\n\n💰 ابدأ تعدين gram بالضغط على العملة!\n🏆 نافس أصدقاءك واكسب مكافآت!\n\n👇 اضغط الزر أدناه للبدء:"
 }

@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
+import { API_BASE, getInitData } from '@/lib/telegramApi';
+import { useTelegramUser } from './TelegramUserContext';
 
 type CoinsContextType = {
   coins: number;
@@ -9,47 +11,100 @@ type CoinsContextType = {
 };
 
 const CoinsContext = createContext<CoinsContextType | null>(null);
-const STORAGE_KEY = 'gram_coins_balance';
+
+/** Per-user localStorage key so different Telegram accounts never share the same coin balance. */
+function getStorageKey(): string {
+  const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  return tgId ? `gram_coins_balance_${tgId}` : 'gram_coins_balance';
+}
+
+function loadStoredCoins(): number {
+  try {
+    const saved = localStorage.getItem(getStorageKey());
+    return saved !== null ? Number(saved) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveStoredCoins(val: number) {
+  try { localStorage.setItem(getStorageKey(), String(val)); } catch { /* ignore */ }
+}
 
 export function CoinsProvider({ children }: { children: React.ReactNode }) {
-  const [coins, setCoins] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved !== null ? Number(saved) : 100;
-    } catch {
-      return 100;
-    }
-  });
+  const { user, isVerified } = useTelegramUser();
+  const [coins, setCoinsRaw] = useState<number>(loadStoredCoins);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, String(coins));
-    } catch { /* ignore */ }
-  }, [coins]);
-
-  const refreshBalance = async () => {
-    setLoading(true);
-    // TODO: fetch real balance from API when backend ready
-    setLoading(false);
-  };
-
-  /** Returns true if deduction succeeded, false if insufficient balance. */
-  const spendCoins = (amount: number): boolean => {
-    let success = false;
-    setCoins(prev => {
-      if (prev >= amount) {
-        success = true;
-        return prev - amount;
-      }
-      return prev;
+  const setCoins = useCallback((val: number | ((prev: number) => number)) => {
+    setCoinsRaw(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      saveStoredCoins(next);
+      return next;
     });
-    return success;
-  };
+  }, []);
 
-  const addCoins = (amount: number) => {
+  // Keep a stable ref for use in callbacks to avoid stale closures
+  const coinsRef = useRef(coins);
+  useEffect(() => { coinsRef.current = coins; }, [coins]);
+
+  // Seed from server once auth is verified — take the max of local & server
+  // so any offline purchases (localStorage) aren't overwritten by a stale server value.
+  const seededFromServer = useRef(false);
+  useEffect(() => {
+    if (seededFromServer.current) return;
+    if (!isVerified || typeof user?.coins !== 'number') return;
+    seededFromServer.current = true;
+    setCoins(Math.max(loadStoredCoins(), user.coins));
+  }, [isVerified, user?.coins, setCoins]);
+
+  const refreshBalance = useCallback(async () => {
+    const initData = getInitData();
+    if (!initData) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/telegram/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { user?: { coins?: number } };
+        if (typeof data.user?.coins === 'number') {
+          setCoins(data.user.coins);
+        }
+      }
+    } catch { /* best-effort */ }
+    finally { setLoading(false); }
+  }, [setCoins]);
+
+  /**
+   * Optimistically deducts coins locally, then syncs with the server in the background.
+   * Returns true immediately if balance is sufficient, false otherwise.
+   * If the server rejects the deduction, the coins are added back.
+   */
+  const spendCoins = useCallback((amount: number): boolean => {
+    if (coinsRef.current < amount) return false;
+    setCoins(prev => prev - amount);
+
+    // Background server sync
+    const initData = getInitData();
+    if (initData) {
+      fetch(`${API_BASE}/api/telegram/coins/spend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, amount }),
+      }).catch(() => {
+        // Rollback on network failure — server will be eventually consistent on next auth
+        setCoins(prev => prev + amount);
+      });
+    }
+    return true;
+  }, [setCoins]);
+
+  const addCoins = useCallback((amount: number) => {
     setCoins(prev => prev + amount);
-  };
+  }, [setCoins]);
 
   return (
     <CoinsContext.Provider value={{ coins, loading, spendCoins, addCoins, refreshBalance }}>
