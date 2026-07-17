@@ -53,8 +53,17 @@ function AppWithLanguage({ children }: { children: React.ReactNode }) {
   return <LanguageProvider userId={user?.id}>{children}</LanguageProvider>;
 }
 
+function LoadingScreen() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full w-full gap-4">
+      <div className="w-16 h-16 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+      <span className="text-primary font-bold text-lg tracking-widest animate-pulse">GramMiner</span>
+    </div>
+  );
+}
+
 function Router() {
-  const { isAdmin } = useTelegramUser();
+  const { isAdmin, isLoading } = useTelegramUser();
 
   return (
     <div
@@ -65,21 +74,27 @@ function Router() {
         backgroundPosition: 'center',
       }}
     >
-      <div
-        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain relative z-10 pb-[80px] [-webkit-overflow-scrolling:touch]"
-        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
-      >
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/miners" component={Miners} />
-          <Route path="/tasks" component={Tasks} />
-          <Route path="/friends" component={Friends} />
-          <Route path="/profile" component={Profile} />
-          {isAdmin && <Route path="/admin" component={Admin} />}
-          <Route component={() => <div className="p-8 text-primary text-center pt-20">404 NOT FOUND</div>} />
-        </Switch>
-      </div>
-      <BottomNav showAdmin={isAdmin} />
+      {isLoading ? (
+        <LoadingScreen />
+      ) : (
+        <>
+          <div
+            className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain relative z-10 pb-[80px] [-webkit-overflow-scrolling:touch]"
+            style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+          >
+            <Switch>
+              <Route path="/" component={Dashboard} />
+              <Route path="/miners" component={Miners} />
+              <Route path="/tasks" component={Tasks} />
+              <Route path="/friends" component={Friends} />
+              <Route path="/profile" component={Profile} />
+              {isAdmin && <Route path="/admin" component={Admin} />}
+              <Route component={() => <div className="p-8 text-primary text-center pt-20">404 NOT FOUND</div>} />
+            </Switch>
+          </div>
+          <BottomNav showAdmin={isAdmin} />
+        </>
+      )}
     </div>
   );
 }

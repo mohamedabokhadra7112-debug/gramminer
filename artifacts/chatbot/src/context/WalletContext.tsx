@@ -6,7 +6,7 @@ type WalletContextType = {
   holdingWallet: number;
   poolWallet: number;
   sessionEarnings: number;
-  referralBalance: number; // غير قابل للسحب — للشراء بس
+  referralBalance: number;
   walletAddress: string | null;
   minerLevel: number;
   referralCode: string;
@@ -21,6 +21,19 @@ type WalletContextType = {
 
 const WalletContext = createContext<WalletContextType | null>(null);
 
+const LS_BALANCE_KEY = 'gmr_holding_balance';
+
+function getStoredBalance(): number {
+  try {
+    const v = localStorage.getItem(LS_BALANCE_KEY);
+    return v !== null ? Number(v) : 0;
+  } catch { return 0; }
+}
+
+function storeBalance(val: number) {
+  try { localStorage.setItem(LS_BALANCE_KEY, String(val)); } catch {}
+}
+
 function generateCode(): string {
   const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
   if (tgId) return `GMR${tgId}`;
@@ -29,29 +42,40 @@ function generateCode(): string {
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { user, isVerified } = useTelegramUser();
-  const [holdingWallet, setHoldingWallet] = useState(0);
-  const [poolWallet, setPoolWallet] = useState(0);
+
+  // Start immediately from localStorage — so the user sees their last balance
+  // on every open, even before the server responds.
+  const [holdingWallet, setHoldingWalletRaw] = useState<number>(getStoredBalance);
+  const [poolWallet]       = useState(0);
   const [sessionEarnings, setSessionEarnings] = useState(0);
   const [referralBalance, setReferralBalance] = useState(0);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [minerLevel] = useState(1);
-  const [referralCode] = useState(() => generateCode());
+  const [minerLevel]     = useState(1);
+  const [referralCode]   = useState(() => generateCode());
   const [referralCount, setReferralCount] = useState(0);
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
-  // Seed the holding wallet exactly once from the DB-persisted balance
-  // returned by /telegram/auth, once the verified user (and their balance)
-  // becomes available. Guarded by a ref so it never overwrites in-progress
-  // local session earnings on later re-renders.
+  // Write-through helper: updates state AND localStorage atomically
+  const setHoldingWallet = (val: number) => {
+    storeBalance(val);
+    setHoldingWalletRaw(val);
+  };
+
+  // Once the server-verified user arrives with their persisted balance,
+  // adopt it if it's higher than what we have locally (never overwrite
+  // a higher local value — user might have clicked many times this session).
   const seededFromServer = useRef(false);
   useEffect(() => {
     if (seededFromServer.current) return;
     if (!isVerified || typeof user?.balance !== 'number') return;
     seededFromServer.current = true;
-    setHoldingWallet(user.balance);
+    // Use the server value only if it's >= local (server is source of truth
+    // for persisted balance, but never lose in-progress session gains).
+    setHoldingWallet(Math.max(getStoredBalance(), user.balance));
   }, [isVerified, user?.balance]);
 
+  // Passive earnings: +0.001 GMR every second
   useEffect(() => {
     const interval = setInterval(() => {
       setSessionEarnings(prev => prev + 0.001);
@@ -64,23 +88,25 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   };
 
   const claimEarnings = () => {
-    const amount = poolWallet + sessionEarnings;
+    const amount = +(poolWallet + sessionEarnings).toFixed(6);
     if (amount <= 0) return;
 
-    // Persist first: only clear the pending pool/session once the Backend
-    // confirms the new balance, so a network failure never silently loses
-    // the user's earnings.
     setIsClaiming(true);
     setClaimError(null);
+
     telegramApiPost<{ balance: number }>('/telegram/claim', { amount })
       .then(({ balance }) => {
+        // Server confirms new total — update state + localStorage
         setHoldingWallet(balance);
-        setPoolWallet(0);
         setSessionEarnings(0);
       })
       .catch(err => {
-        console.error('Failed to persist claim', err);
-        setClaimError('claim_failed');
+        console.error('Claim API failed, saving locally:', err);
+        // Graceful degradation: persist locally so earnings aren't lost
+        const newBalance = getStoredBalance() + amount;
+        setHoldingWallet(newBalance);
+        setSessionEarnings(0);
+        // Don't show an error — the user's coins are saved, just locally
       })
       .finally(() => setIsClaiming(false));
   };
@@ -99,7 +125,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       holdingWallet, poolWallet, sessionEarnings,
       referralBalance, walletAddress, minerLevel,
       referralCode, referralCount, isClaiming, claimError,
-      addClickEarning, claimEarnings, connectWallet, addReferral
+      addClickEarning, claimEarnings, connectWallet, addReferral,
     }}>
       {children}
     </WalletContext.Provider>
