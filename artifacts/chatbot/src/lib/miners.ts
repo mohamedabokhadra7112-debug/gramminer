@@ -2,22 +2,32 @@
  * Shared miner configuration and helpers used by both the Miners page
  * and the Dashboard (for the projected 24-hour earnings display).
  *
- * Miners 1–5:  5% daily ROI of baseCost per level
- * Miners 6–10: 8% daily ROI of baseCost per level
- * Upgrade cost: baseCost × 1.1^currentLevel
+ * 1 gram = 700 coins.  Daily reward is in GRAM = (baseCost / 700) × dailyPct × level.
+ *
+ * Tier breakdown (dailyPct):
+ *   Miners 1–2:   5%
+ *   Miners 3–5:   6%
+ *   Miners 6–7:   8%
+ *   Miner  8:    10%
+ *   Miner  9:    12%
+ *   Miner 10:    15%
+ *
+ * Upgrade cost: baseCost × 1.1^currentLevel  (paid in coins)
  */
+
+export const GRAM_PER_COIN = 700;
 
 export const MINERS_CONFIG = [
   { id: 1,  name: 'Stone Collector',     baseCost: 10,    dailyPct: 0.05, row: 0, col: 0 },
   { id: 2,  name: 'Copper Miner',        baseCost: 50,    dailyPct: 0.05, row: 0, col: 1 },
-  { id: 3,  name: 'Ore Cart',            baseCost: 250,   dailyPct: 0.05, row: 0, col: 2 },
-  { id: 4,  name: 'Crystal Hunter',      baseCost: 500,   dailyPct: 0.05, row: 0, col: 3 },
-  { id: 5,  name: 'Forge Master',        baseCost: 1000,  dailyPct: 0.05, row: 0, col: 4 },
+  { id: 3,  name: 'Ore Cart',            baseCost: 250,   dailyPct: 0.06, row: 0, col: 2 },
+  { id: 4,  name: 'Crystal Hunter',      baseCost: 500,   dailyPct: 0.06, row: 0, col: 3 },
+  { id: 5,  name: 'Forge Master',        baseCost: 1000,  dailyPct: 0.06, row: 0, col: 4 },
   { id: 6,  name: 'Mining Drone',        baseCost: 2000,  dailyPct: 0.08, row: 1, col: 0 },
   { id: 7,  name: 'Quantum Excavator',   baseCost: 5000,  dailyPct: 0.08, row: 1, col: 1 },
-  { id: 8,  name: 'Satellite Extractor', baseCost: 10000, dailyPct: 0.08, row: 1, col: 2 },
-  { id: 9,  name: 'Planet Miner',        baseCost: 15000, dailyPct: 0.08, row: 1, col: 3 },
-  { id: 10, name: 'Gram Core Reactor',   baseCost: 20000, dailyPct: 0.08, row: 1, col: 4 },
+  { id: 8,  name: 'Satellite Extractor', baseCost: 10000, dailyPct: 0.10, row: 1, col: 2 },
+  { id: 9,  name: 'Planet Miner',        baseCost: 15000, dailyPct: 0.12, row: 1, col: 3 },
+  { id: 10, name: 'Gram Core Reactor',   baseCost: 20000, dailyPct: 0.15, row: 1, col: 4 },
 ] as const;
 
 export type MinerConfig = (typeof MINERS_CONFIG)[number];
@@ -30,9 +40,13 @@ export function getUpgradeCost(baseCost: number, level: number): number {
   return Math.round(baseCost * Math.pow(1.1, level));
 }
 
-/** Daily GRAM reward for one miner at a given level */
+/**
+ * Daily GRAM reward for one miner at a given level.
+ * baseCost is in coins → divide by GRAM_PER_COIN to get the gram value,
+ * then apply the daily percentage and multiply by level.
+ */
 export function getDailyReward(baseCost: number, pct: number, level: number): number {
-  return baseCost * pct * level;
+  return (baseCost / GRAM_PER_COIN) * pct * level;
 }
 
 /** Per-user localStorage key — prevents cross-account data bleed on shared devices */

@@ -144,7 +144,7 @@ export default function Miners() {
                     <div>
                       <p className="text-gray-400 text-xs">Not purchased</p>
                       <p className="text-green-500/70 text-xs mt-0.5">
-                        Earns {formatGram(miner.baseCost * miner.dailyPct, 2)} gram/day at L1
+                        Earns {formatGram(getDailyReward(miner.baseCost, miner.dailyPct, 1), 4)} gram/day at L1
                       </p>
                     </div>
                   ) : (
@@ -212,11 +212,23 @@ export default function Miners() {
           <span>Upgrade cost</span>
           <span className="text-right text-green-400">+10% per level</span>
 
-          <span>Miners 1 – 5</span>
+          <span>Miners 1 – 2</span>
           <span className="text-right text-blue-400">5% daily ROI</span>
 
-          <span>Miners 6 – 10</span>
+          <span>Miners 3 – 5</span>
+          <span className="text-right text-blue-400">6% daily ROI</span>
+
+          <span>Miners 6 – 7</span>
           <span className="text-right text-purple-400">8% daily ROI</span>
+
+          <span>Miner 8</span>
+          <span className="text-right text-purple-400">10% daily ROI</span>
+
+          <span>Miner 9</span>
+          <span className="text-right text-yellow-400">12% daily ROI</span>
+
+          <span>Miner 10</span>
+          <span className="text-right text-yellow-400">15% daily ROI</span>
 
           <span>Max level</span>
           <span className="text-right text-yellow-400">Level 10</span>
