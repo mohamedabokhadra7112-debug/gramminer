@@ -85,13 +85,28 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setWalletAddressState(addr);
   }, []);
 
-  // Seed from server balance once verified
+  // Seed from server balance once verified.
+  // The server is always the authoritative source of truth.
+  // We only trust localStorage over the server if the difference is small
+  // (≤ MAX_UNSYNCED_GRAM) — that margin represents earnings saved locally
+  // but not yet flushed to the DB due to a failed network save.
+  // If localStorage is much higher than the server, it is almost certainly
+  // corrupted (e.g. from a previous bug or repeated aborted-request fallbacks)
+  // and we discard it by using the server value.
   const seededFromServer = useRef(false);
+  const MAX_UNSYNCED_GRAM = 10; // max plausible unsynced offline earnings
   useEffect(() => {
     if (seededFromServer.current) return;
     if (!isVerified || typeof user?.balance !== 'number') return;
     seededFromServer.current = true;
-    setHoldingWallet(Math.max(getStoredBalance(), user.balance));
+    const serverBalance = user.balance;
+    const storedBalance = getStoredBalance();
+    const diff = storedBalance - serverBalance;
+    const safeBalance = diff > 0 && diff <= MAX_UNSYNCED_GRAM
+      ? storedBalance   // small legitimate offline gap — preserve it
+      : serverBalance;  // server wins (stored value is stale or corrupted)
+    setHoldingWallet(safeBalance);
+    storeBalance(safeBalance); // immediately correct localStorage
   }, [isVerified, user?.balance, setHoldingWallet]);
 
   // Load referrals from server

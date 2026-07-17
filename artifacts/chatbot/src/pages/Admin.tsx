@@ -456,6 +456,21 @@ function UsersSection() {
                 <Coins className="w-3 h-3" />خصم
               </Btn>
             </div>
+            {/* Direct balance correction — overwrites the stored value entirely */}
+            <div className="pt-1 border-t border-white/10">
+              <p className="text-[10px] text-amber-400 font-bold mb-1.5">⚠️ تصحيح الرصيد (تعيين قيمة مباشرة)</p>
+              <div className="flex gap-2">
+                <Input value={amount} onChange={e => setAmount(e.target.value)} type="number"
+                  placeholder="القيمة الصحيحة" className="flex-1" />
+                <Btn variant="ghost" size="sm"
+                  onClick={() => {
+                    if (!window.confirm(`سيتم تعيين رصيد ${u.firstName ?? u.telegramId} إلى ${amount} gram. هل أنت متأكد؟`)) return;
+                    act(`/admin/users/${u.telegramId}/balance/set`, { value: Number(amount) }, `تم تعيين الرصيد إلى ${amount} gram`);
+                  }}>
+                  <Check className="w-3 h-3" />تعيين
+                </Btn>
+              </div>
+            </div>
           </div>
 
           {/* Warning message */}

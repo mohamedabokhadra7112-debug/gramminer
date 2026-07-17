@@ -384,7 +384,8 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
   const user = verifyInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
 
-  const amount = Number(req.body?.amount);
+  // Parse and round to 6 decimal places to prevent floating-point accumulation.
+  const amount = Math.round(Number(req.body?.amount) * 1_000_000) / 1_000_000;
   // Reject non-finite, non-positive, or implausibly large amounts — a basic
   // guard against obvious client tampering until real anti-cheat exists.
   if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000) {
@@ -400,9 +401,15 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
     const { eq, sql } = await import("drizzle-orm");
     // Ensure the row exists (first-time claimers who never hit /auth yet).
     await upsertUser({ id: user.id, first_name: user.first_name, last_name: user.last_name, username: user.username });
+    // Use NUMERIC arithmetic then cast back to double precision so every claim
+    // is stored with at most 6 decimal places — preventing floating-point drift
+    // from accumulating across thousands of small additions.
     const [row] = await db
       .update(usersTable)
-      .set({ balance: sql`${usersTable.balance} + ${amount}`, lastActiveAt: new Date() })
+      .set({
+        balance: sql`ROUND(CAST(${usersTable.balance} AS numeric) + CAST(${amount} AS numeric), 6)::double precision`,
+        lastActiveAt: new Date(),
+      })
       .where(eq(usersTable.telegramId, user.id))
       .returning({ balance: usersTable.balance });
 

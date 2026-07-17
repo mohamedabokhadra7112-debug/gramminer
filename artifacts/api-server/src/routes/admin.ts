@@ -287,17 +287,50 @@ router.post("/admin/users/:telegramId/balance", async (req, res) => {
   if (!db) { res.status(503).json({ error: "Database not available" }); return; }
 
   const telegramId = Number(req.params.telegramId);
-  const { amount } = req.body as { amount: number }; // positive = add, negative = deduct
+  const rawAmount = Number((req.body as { amount: unknown }).amount);
+  if (!Number.isFinite(rawAmount)) {
+    res.status(400).json({ error: "Invalid amount" }); return;
+  }
+  // Clamp the adjustment to ±1,000,000 to prevent accidental corruption
+  const amount = Math.max(-1_000_000, Math.min(1_000_000, rawAmount));
 
   try {
     const { usersTable } = await import("@workspace/db");
-    await db
+    const [row] = await db
       .update(usersTable)
-      .set({ balance: sql`${usersTable.balance} + ${amount}` })
-      .where(eq(usersTable.telegramId, telegramId));
-    res.json({ ok: true });
+      .set({ balance: sql`ROUND(CAST(${usersTable.balance} AS numeric) + CAST(${amount} AS numeric), 6)::double precision` })
+      .where(eq(usersTable.telegramId, telegramId))
+      .returning({ balance: usersTable.balance });
+    res.json({ ok: true, balance: row?.balance ?? 0 });
   } catch (err) {
     logger.error({ err }, "admin/users balance error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Directly set (overwrite) a user's balance — used to correct corrupted values.
+router.post("/admin/users/:telegramId/balance/set", async (req, res) => {
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  const telegramId = Number(req.params.telegramId);
+  const rawValue = Number((req.body as { value: unknown }).value);
+  if (!Number.isFinite(rawValue) || rawValue < 0) {
+    res.status(400).json({ error: "value must be a non-negative number" }); return;
+  }
+  const value = Math.round(rawValue * 1_000_000) / 1_000_000; // 6 dp precision
+
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const [row] = await db
+      .update(usersTable)
+      .set({ balance: value })
+      .where(eq(usersTable.telegramId, telegramId))
+      .returning({ balance: usersTable.balance });
+    logger.info({ telegramId, newBalance: row?.balance }, "admin set balance");
+    res.json({ ok: true, balance: row?.balance ?? value });
+  } catch (err) {
+    logger.error({ err }, "admin/users balance/set error");
     res.status(500).json({ error: "Internal server error" });
   }
 });
