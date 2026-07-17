@@ -108,20 +108,23 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* The Big Coin */}
+      {/* The Big Logo */}
       <div className="flex-1 flex items-center justify-center relative z-10 mt-2 mb-2">
+        {/* Circular clip — crops the rectangular background of the photo */}
         <div
-          className="relative w-[min(260px,58vw)] h-[min(260px,58vw)] rounded-full coin-edge p-[3px] shadow-2xl"
+          className="rounded-full overflow-hidden"
+          style={{
+            width:  'min(260px, 62vw)',
+            height: 'min(260px, 62vw)',
+            boxShadow: '0 0 48px 8px rgba(255,220,100,0.25), 0 0 0 2px rgba(255,220,100,0.15)',
+          }}
         >
-          <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
-            <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>
-            <img
-              src={gramLogoImg}
-              alt="gram"
-              className="w-[80%] h-[80%] object-contain relative z-10"
-              style={{ mixBlendMode: 'screen' }}
-            />
-          </div>
+          <img
+            src={gramLogoImg}
+            alt="gram"
+            className="w-full h-full object-cover"
+            style={{ objectPosition: 'center 35%' }}
+          />
         </div>
       </div>
 
