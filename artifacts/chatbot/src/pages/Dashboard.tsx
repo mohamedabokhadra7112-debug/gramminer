@@ -7,7 +7,7 @@ import { ChevronDown } from 'lucide-react';
 import gramCoinImg from '@/assets/gram-coin.png';
 
 export default function Dashboard() {
-  const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, addClickEarning, claimEarnings } = useWallet();
+  const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, claimEarnings } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
   const { t } = useLanguage();
   const [showWallet, setShowWallet] = useState(false);
@@ -22,28 +22,6 @@ export default function Dashboard() {
   const shortAddress = walletAddress
     ? walletAddress.slice(0, 2) + '...' + walletAddress.slice(-2)
     : null;
-
-  const playMiningTone = () => {
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.15);
-    } catch (_) {}
-  };
-
-  const handleCoinClick = () => {
-    addClickEarning(0.001);
-    playMiningTone();
-  };
 
   return (
     <div className="min-h-full flex flex-col relative w-full">
@@ -111,8 +89,7 @@ export default function Dashboard() {
       {/* The Big Coin */}
       <div className="flex-1 flex items-center justify-center relative z-10 mt-2 mb-2">
         <div
-          className="relative w-[min(260px,58vw)] h-[min(260px,58vw)] rounded-full coin-edge p-[3px] cursor-pointer touch-manipulation shadow-2xl active:scale-95 transition-transform duration-100"
-          onClick={handleCoinClick}
+          className="relative w-[min(260px,58vw)] h-[min(260px,58vw)] rounded-full coin-edge p-[3px] shadow-2xl"
         >
           <div className="w-full h-full rounded-full coin-gradient flex items-center justify-center relative overflow-hidden border-2 border-[#ffeca8]/30">
             <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-white/20 to-transparent rounded-full transform -rotate-45"></div>

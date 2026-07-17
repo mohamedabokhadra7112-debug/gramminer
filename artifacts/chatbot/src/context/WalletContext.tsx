@@ -13,7 +13,6 @@ type WalletContextType = {
   referralCount: number;
   isClaiming: boolean;
   claimError: string | null;
-  addClickEarning: (amount: number) => void;
   claimEarnings: () => void;
   connectWallet: (address: string) => void;
   addReferral: () => void;
@@ -121,10 +120,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
-  const addClickEarning = (amount: number) => {
-    setSessionEarnings(prev => prev + amount);
-  };
-
   const claimEarnings = () => {
     const amount = +(poolWallet + sessionEarnings).toFixed(6);
     if (amount <= 0) return;
@@ -158,7 +153,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       holdingWallet, poolWallet, sessionEarnings,
       referralBalance, walletAddress, minerLevel,
       referralCode, referralCount, isClaiming, claimError,
-      addClickEarning, claimEarnings, connectWallet, addReferral, refreshReferrals,
+      claimEarnings, connectWallet, addReferral, refreshReferrals,
     }}>
       {children}
     </WalletContext.Provider>
