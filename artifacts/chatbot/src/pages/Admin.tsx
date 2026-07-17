@@ -109,7 +109,7 @@ function StatusMsg({ msg, isError }: { msg: string; isError?: boolean }) {
 function StatsSection() {
   const [stats, setStats] = useState<Stats|null>(null);
   const [err, setErr] = useState('');
-  useEffect(() => { api<Stats>('GET', '/admin/stats').then(setStats).catch(e => setErr(e.message)); }, []);
+  useEffect(() => { api<Stats>('GET', '/admin/general?type=stats').then(setStats).catch(e => setErr(e.message)); }, []);
 
   if (err) return <div className="text-destructive text-sm">{err}</div>;
   if (!stats) return <div className="text-muted-foreground text-sm">جار التحميل...</div>;
@@ -141,7 +141,7 @@ function BroadcastSection() {
     setLoading(true); setStatus('');
     try {
       const { sent, failed, total } = await api<{ sent: number; failed: number; total: number }>(
-        'POST', '/admin/broadcast', { message: msg }
+        'POST', '/admin/general?type=broadcast', { message: msg }
       );
       setStatus(`✅ أُرسلت لـ ${sent}/${total} مستخدم (فشل: ${failed})`);
       setMsg('');
@@ -175,7 +175,7 @@ function MaintenanceSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings').then(s => {
+    api<Record<string, string>>('GET', '/admin/general?type=settings').then(s => {
       setOn(s['maintenance_mode'] === 'true');
       setMsg(s['maintenance_message'] || '🔧 البوت تحت الصيانة، سيعود قريباً!');
     }).finally(() => setLoading(false));
@@ -184,8 +184,8 @@ function MaintenanceSection() {
   const save = async () => {
     try {
       await Promise.all([
-        api('POST', '/admin/settings', { key: 'maintenance_mode', value: String(on) }),
-        api('POST', '/admin/settings', { key: 'maintenance_message', value: msg }),
+        api('POST', '/admin/general?type=settings', { key: 'maintenance_mode', value: String(on) }),
+        api('POST', '/admin/general?type=settings', { key: 'maintenance_message', value: msg }),
       ]);
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل الحفظ'); }
@@ -225,14 +225,14 @@ function WelcomeSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings')
+    api<Record<string, string>>('GET', '/admin/general?type=settings')
       .then(s => setMsg(s['welcome_message'] || ''))
       .finally(() => setLoading(false));
   }, []);
 
   const save = async () => {
     try {
-      await api('POST', '/admin/settings', { key: 'welcome_message', value: msg });
+      await api('POST', '/admin/general?type=settings', { key: 'welcome_message', value: msg });
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
@@ -273,8 +273,8 @@ function TasksSection() {
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
   };
-  const del = async (id: number) => { await api('DELETE', `/admin/tasks/${id}`); load(); };
-  const toggle = async (t: Task) => { await api('PATCH', `/admin/tasks/${t.id}`, { isHidden: !t.isHidden }); load(); };
+  const del = async (id: number) => { await api('DELETE', `/admin/tasks?id=${id}`); load(); };
+  const toggle = async (t: Task) => { await api('PATCH', `/admin/tasks?id=${t.id}`, { isHidden: !t.isHidden }); load(); };
 
   return (
     <div className="space-y-3">
@@ -321,7 +321,7 @@ function ReferralSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings').then(s => {
+    api<Record<string, string>>('GET', '/admin/general?type=settings').then(s => {
       setPrice(s['referral_price'] || '0.01');
       setDesc(s['referral_description'] || 'احصل على مكافأة GMR مقابل كل صديق تدعوه!');
     }).finally(() => setLoading(false));
@@ -330,8 +330,8 @@ function ReferralSection() {
   const save = async () => {
     try {
       await Promise.all([
-        api('POST', '/admin/settings', { key: 'referral_price', value: price }),
-        api('POST', '/admin/settings', { key: 'referral_description', value: desc }),
+        api('POST', '/admin/general?type=settings', { key: 'referral_price', value: price }),
+        api('POST', '/admin/general?type=settings', { key: 'referral_description', value: desc }),
       ]);
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل'); }
@@ -370,7 +370,7 @@ function UsersSection() {
     if (!query.trim()) return;
     setLoading(true); setStatus(''); setSelected(null);
     try {
-      const users = await api<User[]>('GET', `/admin/users/search?q=${encodeURIComponent(query)}`);
+      const users = await api<User[]>('GET', `/admin/users?action=search&q=${encodeURIComponent(query)}`);
       setResults(users);
       if (!users.length) setStatus('لا نتائج');
     } catch (e: any) { setStatus(`❌ ${e.message}`); }
@@ -382,7 +382,7 @@ function UsersSection() {
       await api('POST', path, body);
       setStatus(`✅ ${successMsg}`);
       // Refresh
-      const users = await api<User[]>('GET', `/admin/users/search?q=${encodeURIComponent(query)}`);
+      const users = await api<User[]>('GET', `/admin/users?action=search&q=${encodeURIComponent(query)}`);
       setResults(users);
       const updated = users.find(u => u.telegramId === selected?.telegramId);
       if (updated) setSelected(updated);
@@ -440,11 +440,11 @@ function UsersSection() {
             <Input value={amount} onChange={e => setAmount(e.target.value)} type="number" placeholder="الكمية" />
             <div className="flex gap-2">
               <Btn variant="success" size="sm" className="flex-1"
-                onClick={() => act(`/admin/users/${u.telegramId}/balance`, { amount: Number(amount) }, 'تم إضافة الرصيد')}>
+                onClick={() => act(`/admin/users?action=balance&telegramId=${u.telegramId}`, { amount: Number(amount) }, 'تم إضافة الرصيد')}>
                 <Coins className="w-3 h-3" />إضافة
               </Btn>
               <Btn variant="danger" size="sm" className="flex-1"
-                onClick={() => act(`/admin/users/${u.telegramId}/balance`, { amount: -Number(amount) }, 'تم خصم الرصيد')}>
+                onClick={() => act(`/admin/users?action=balance&telegramId=${u.telegramId}`, { amount: -Number(amount) }, 'تم خصم الرصيد')}>
                 <Coins className="w-3 h-3" />خصم
               </Btn>
             </div>
@@ -461,7 +461,7 @@ function UsersSection() {
               className="w-full bg-white/5 border border-white/10 rounded-xl p-2 text-white text-sm resize-none focus:outline-none"
             />
             <Btn variant="ghost" size="sm" className="w-full"
-              onClick={() => act(`/admin/users/${u.telegramId}/warn`, { message: warnMsg }, 'تم الإرسال')}>
+              onClick={() => act(`/admin/users?action=warn&telegramId=${u.telegramId}`, { message: warnMsg }, 'تم الإرسال')}>
               <AlertTriangle className="w-3 h-3 text-amber-400" />إرسال التحذير له فقط
             </Btn>
           </div>
@@ -469,11 +469,11 @@ function UsersSection() {
           {/* Quick actions */}
           <div className="flex flex-wrap gap-2">
             <Btn variant={u.isBanned ? 'success' : 'danger'} size="sm"
-              onClick={() => act(`/admin/users/${u.telegramId}/ban`, { ban: !u.isBanned }, u.isBanned ? 'رُفع الحظر' : 'تم الحظر')}>
+              onClick={() => act(`/admin/users?action=ban&telegramId=${u.telegramId}`, { ban: !u.isBanned }, u.isBanned ? 'رُفع الحظر' : 'تم الحظر')}>
               <Ban className="w-3 h-3" />{u.isBanned ? 'رفع الحظر' : 'حظر المستخدم'}
             </Btn>
             <Btn variant={u.restrictWithdrawal ? 'success' : 'ghost'} size="sm"
-              onClick={() => act(`/admin/users/${u.telegramId}/restrict`, { restrict: !u.restrictWithdrawal }, u.restrictWithdrawal ? 'رُفع تقييد السحب' : 'تم تقييد السحب')}>
+              onClick={() => act(`/admin/users?action=restrict&telegramId=${u.telegramId}`, { restrict: !u.restrictWithdrawal }, u.restrictWithdrawal ? 'رُفع تقييد السحب' : 'تم تقييد السحب')}>
               <ArrowDownUp className="w-3 h-3" />{u.restrictWithdrawal ? 'رفع تقييد السحب' : 'تقييد السحب'}
             </Btn>
           </div>
@@ -563,7 +563,7 @@ function LimitsSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings').then(s => {
+    api<Record<string, string>>('GET', '/admin/general?type=settings').then(s => {
       setVals({ minWithdraw: s['min_withdrawal'] || '1', maxWithdraw: s['max_withdrawal'] || '1000', minDeposit: s['min_deposit'] || '0.1', maxDeposit: s['max_deposit'] || '10000' });
     }).finally(() => setLoading(false));
   }, []);
@@ -571,10 +571,10 @@ function LimitsSection() {
   const save = async () => {
     try {
       await Promise.all([
-        api('POST', '/admin/settings', { key: 'min_withdrawal', value: vals.minWithdraw }),
-        api('POST', '/admin/settings', { key: 'max_withdrawal', value: vals.maxWithdraw }),
-        api('POST', '/admin/settings', { key: 'min_deposit',    value: vals.minDeposit }),
-        api('POST', '/admin/settings', { key: 'max_deposit',    value: vals.maxDeposit }),
+        api('POST', '/admin/general?type=settings', { key: 'min_withdrawal', value: vals.minWithdraw }),
+        api('POST', '/admin/general?type=settings', { key: 'max_withdrawal', value: vals.maxWithdraw }),
+        api('POST', '/admin/general?type=settings', { key: 'min_deposit',    value: vals.minDeposit }),
+        api('POST', '/admin/general?type=settings', { key: 'max_deposit',    value: vals.maxDeposit }),
       ]);
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل'); }
@@ -623,7 +623,7 @@ function ChannelsSection() {
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
   };
-  const del = async (id: number) => { await api('DELETE', `/admin/channels/${id}`); load(); };
+  const del = async (id: number) => { await api('DELETE', `/admin/channels?id=${id}`); load(); };
 
   return (
     <div className="space-y-3">

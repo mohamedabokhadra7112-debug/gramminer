@@ -1,3 +1,7 @@
+// Consolidated: channels list/create + channel delete
+// GET             → list channels
+// POST            { channelUsername, channelName } → add channel
+// DELETE ?id=X    → delete channel
 const { verifyAdmin, cors } = require('./_auth');
 const { getPool } = require('./_db');
 
@@ -25,6 +29,13 @@ module.exports = async function handler(req, res) {
     );
     const r = rows[0];
     return res.json({ id: r.id, channelUsername: r.channel_username, channelName: r.channel_name });
+  }
+
+  if (req.method === 'DELETE') {
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ error: 'id required' });
+    await db.query('DELETE FROM gm_channels WHERE id = $1', [Number(id)]);
+    return res.json({ ok: true });
   }
 
   res.status(405).json({ error: 'Method not allowed' });
