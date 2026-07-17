@@ -136,6 +136,23 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
     if (!dbUser.walletAddress) { res.status(400).json({ error: "No wallet connected. Connect your TON wallet first." }); return; }
     if ((dbUser.balance ?? 0) < amt) { res.status(400).json({ error: "Insufficient balance" }); return; }
 
+    // Enforce admin-set withdrawal limits
+    try {
+      const { settingsTable } = await import("@workspace/db");
+      for (const key of ["min_withdrawal", "max_withdrawal"]) {
+        const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
+        if (row?.value) {
+          const limit = Number(row.value);
+          if (key === "min_withdrawal" && amt < limit) {
+            res.status(400).json({ error: `الحد الأدنى للسحب هو ${limit} GMR` }); return;
+          }
+          if (key === "max_withdrawal" && amt > limit) {
+            res.status(400).json({ error: `الحد الأقصى للسحب هو ${limit} GMR` }); return;
+          }
+        }
+      }
+    } catch { /* if settings unavailable, skip limit check */ }
+
     // Deduct balance immediately (held in escrow)
     await db
       .update(usersTable)

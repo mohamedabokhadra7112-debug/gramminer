@@ -322,4 +322,197 @@ router.post("/admin/users/:telegramId/restrict", async (req, res) => {
   }
 });
 
+// ─── Broadcast ────────────────────────────────────────────────────────────────
+
+router.post("/admin/broadcast", async (req, res) => {
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  const { message } = req.body as { message?: string };
+  if (!message?.trim()) { res.status(400).json({ error: "message is required" }); return; }
+
+  const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const users = await db
+      .select({ telegramId: usersTable.telegramId })
+      .from(usersTable)
+      .where(eq(usersTable.blockedBot, false));
+
+    let sent = 0, failed = 0;
+    for (const user of users) {
+      try {
+        const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: user.telegramId, text: message, parse_mode: "HTML" }),
+        });
+        if (r.ok) {
+          sent++;
+        } else {
+          failed++;
+          const data = await r.json().catch(() => ({}) as { error_code?: number });
+          if ((data as { error_code?: number }).error_code === 403) {
+            await db.update(usersTable).set({ blockedBot: true }).where(eq(usersTable.telegramId, user.telegramId));
+          }
+        }
+      } catch { failed++; }
+      // Small delay to avoid Telegram rate limits
+      await new Promise(r => setTimeout(r, 35));
+    }
+
+    res.json({ ok: true, sent, failed, total: users.length });
+  } catch (err) {
+    logger.error({ err }, "admin/broadcast error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Miners config (stored as JSON in settings table) ────────────────────────
+
+const DEFAULT_MINERS = [
+  { id: 1, name: "Stone Collector",     baseCost: 10,    dailyPct: 0.05, description: "" },
+  { id: 2, name: "Copper Miner",        baseCost: 50,    dailyPct: 0.05, description: "" },
+  { id: 3, name: "Ore Cart",            baseCost: 250,   dailyPct: 0.05, description: "" },
+  { id: 4, name: "Crystal Hunter",      baseCost: 500,   dailyPct: 0.05, description: "" },
+  { id: 5, name: "Forge Master",        baseCost: 1000,  dailyPct: 0.05, description: "" },
+  { id: 6, name: "Mining Drone",        baseCost: 2000,  dailyPct: 0.08, description: "" },
+  { id: 7, name: "Quantum Excavator",   baseCost: 5000,  dailyPct: 0.08, description: "" },
+  { id: 8, name: "Satellite Extractor", baseCost: 10000, dailyPct: 0.08, description: "" },
+  { id: 9, name: "Planet Miner",        baseCost: 15000, dailyPct: 0.08, description: "" },
+  { id: 10, name: "Gram Core Reactor",  baseCost: 20000, dailyPct: 0.08, description: "" },
+];
+
+router.get("/admin/miners", async (_req, res) => {
+  const db = await getDb();
+  if (!db) { res.json(DEFAULT_MINERS); return; }
+
+  try {
+    const { settingsTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, "miners_config"));
+    res.json(row?.value ? JSON.parse(row.value) : DEFAULT_MINERS);
+  } catch (err) {
+    logger.error({ err }, "admin/miners GET error");
+    res.json(DEFAULT_MINERS);
+  }
+});
+
+router.post("/admin/miners", async (req, res) => {
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  const { miners } = req.body as { miners?: unknown[] };
+  if (!Array.isArray(miners)) { res.status(400).json({ error: "miners array required" }); return; }
+
+  try {
+    const { settingsTable } = await import("@workspace/db");
+    const val = JSON.stringify(miners);
+    await db
+      .insert(settingsTable)
+      .values({ key: "miners_config", value: val })
+      .onConflictDoUpdate({ target: settingsTable.key, set: { value: val } });
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "admin/miners POST error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Warn a user (send Telegram message) ─────────────────────────────────────
+
+router.post("/admin/users/:telegramId/warn", async (req, res) => {
+  const telegramId = Number(req.params.telegramId);
+  const { message } = req.body as { message?: string };
+
+  const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+  if (!message?.trim()) { res.status(400).json({ error: "message is required" }); return; }
+
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: telegramId,
+        text: `⚠️ <b>تحذير من الإدارة</b>\n\n${message}`,
+        parse_mode: "HTML",
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { res.status(502).json({ error: "Telegram API error", details: data }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "admin/users warn error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Sub-admins (stored as JSON in settings table) ───────────────────────────
+
+type SubAdmin = { telegramId: number; username: string; permissions: string[] };
+
+async function getSubAdmins(db: Awaited<ReturnType<typeof getDb>>): Promise<SubAdmin[]> {
+  if (!db) return [];
+  try {
+    const { settingsTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, "sub_admins"));
+    return row?.value ? (JSON.parse(row.value) as SubAdmin[]) : [];
+  } catch { return []; }
+}
+
+async function saveSubAdmins(db: Awaited<ReturnType<typeof getDb>>, admins: SubAdmin[]) {
+  if (!db) return;
+  const { settingsTable } = await import("@workspace/db");
+  const val = JSON.stringify(admins);
+  await db
+    .insert(settingsTable)
+    .values({ key: "sub_admins", value: val })
+    .onConflictDoUpdate({ target: settingsTable.key, set: { value: val } });
+}
+
+router.get("/admin/admins", async (_req, res) => {
+  const db = await getDb();
+  res.json(await getSubAdmins(db));
+});
+
+router.post("/admin/admins", async (req, res) => {
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  const { telegramId, username, permissions } = req.body as { telegramId?: number; username?: string; permissions?: string[] };
+  if (!telegramId) { res.status(400).json({ error: "telegramId required" }); return; }
+
+  try {
+    const admins = await getSubAdmins(db);
+    if (!admins.find(a => a.telegramId === telegramId)) {
+      admins.push({ telegramId, username: username ?? "", permissions: permissions ?? [] });
+    }
+    await saveSubAdmins(db, admins);
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "admin/admins POST error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.delete("/admin/admins/:telegramId", async (req, res) => {
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  const telegramId = Number(req.params.telegramId);
+  try {
+    const admins = await getSubAdmins(db);
+    await saveSubAdmins(db, admins.filter(a => a.telegramId !== telegramId));
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "admin/admins DELETE error");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

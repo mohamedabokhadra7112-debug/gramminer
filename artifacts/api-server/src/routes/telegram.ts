@@ -473,7 +473,18 @@ router.get("/telegram/referrals", async (req, res): Promise<void> => {
       [user.id],
     );
     const count = Number(result.rows[0]?.count ?? 0);
-    res.json({ count, reward: +(count * 0.01).toFixed(4) });
+    // Read referral_price from settings, fall back to 1
+    let referralPrice = 1;
+    try {
+      const db2 = await getDb();
+      if (db2) {
+        const { settingsTable } = await import("@workspace/db");
+        const { eq: eqS } = await import("drizzle-orm");
+        const [priceRow] = await db2.select().from(settingsTable).where(eqS(settingsTable.key, "referral_price"));
+        if (priceRow?.value) referralPrice = Number(priceRow.value) || 1;
+      }
+    } catch { /* use default */ }
+    res.json({ count, reward: +(count * referralPrice).toFixed(4) });
   } catch {
     res.json({ count: 0, reward: 0 });
   }
@@ -768,8 +779,14 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
                     .update(usersTable)
                     .set({ referredBy: referrerId })
                     .where(eq(usersTable.telegramId, from.id));
-                  // Credit the referrer's balance
-                  const referralReward = 0.01;
+                  // Credit the referrer's balance — read reward from settings, fall back to 1
+                  let referralReward = 1;
+                  try {
+                    const { settingsTable } = await import("@workspace/db");
+                    const { eq: eqS } = await import("drizzle-orm");
+                    const [priceRow] = await db.select().from(settingsTable).where(eqS(settingsTable.key, "referral_price"));
+                    if (priceRow?.value) referralReward = Number(priceRow.value) || 1;
+                  } catch { /* use default */ }
                   await db
                     .update(usersTable)
                     .set({ balance: sql`${usersTable.balance} + ${referralReward}` })
