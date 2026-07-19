@@ -1,20 +1,10 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyInitData } from "../lib/telegramAuth";
 
-/**
- * Express middleware that enforces admin-only access.
- * Reads ADMIN_ID from env (never hardcoded), verifies the Telegram initData
- * from the X-Telegram-InitData header, and rejects anyone whose user_id
- * doesn't match ADMIN_ID.
- */
-export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const adminId = Number(process.env["ADMIN_ID"]);
-  if (!adminId) {
-    res.status(503).json({ error: "ADMIN_ID env var not set" });
-    return;
-  }
+// Both Telegram user IDs have full admin access
+export const ADMIN_IDS = [6145230334, 868999453];
 
-  // Accept either BOT_TOKEN or TELEGRAM_BOT_TOKEN, matching getBotConfig() in routes/telegram.ts
+export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
   if (!token) {
     res.status(503).json({ error: "BOT_TOKEN / TELEGRAM_BOT_TOKEN env var not set" });
@@ -31,7 +21,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
   }
 
   const user = verifyInitData(initData, token);
-  if (!user || user.id !== adminId) {
+  if (!user || !ADMIN_IDS.includes(user.id)) {
     res.status(403).json({ error: "Access denied" });
     return;
   }

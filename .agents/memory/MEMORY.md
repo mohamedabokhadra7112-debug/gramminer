@@ -2,5 +2,6 @@
 - [Telegram Mini App real user + scroll fixes](telegram-mini-app-gotchas.md) — validate initData server-side for real accounts/photos; 100dvh alone breaks scroll inside Telegram's WebView.
 - [Per-user localStorage keys](per-user-localstorage.md) — all gmr_ localStorage keys must include the Telegram user ID to prevent cross-account data bleed.
 - [Withdrawal + TON sending](withdrawal-ton.md) — uses tonweb (installed); env vars OWNER_SECRET_KEY + OWNER_PUBLIC_KEY as JSON arrays; new gm_withdrawals table; admin approves via Admin panel.
+- [Telegram bot admin panel](bot-admin-panel.md) — full inline-keyboard admin panel via /admin; hardcoded ADMIN_IDS [6145230334, 868999453]; in-memory state machine (adminConvStates Map); 11 sections.
 - [GMR→gram + coin currency split](gram-coin-currency.md) — main currency renamed to "gram"; referrals earn "coin" (separate DB column); CoinsContext syncs with server; min withdrawal 0.1 gram.
 - [Lazy DB migrations pattern](lazy-db-migrations.md) — schema changes (ADD COLUMN IF NOT EXISTS) run lazily at route load time, not at startup, to avoid crashing when DB unavailable.

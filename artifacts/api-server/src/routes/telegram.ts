@@ -5,9 +5,30 @@ import { getDb } from "../lib/db";
 
 const router: IRouter = Router();
 
-function getAdminId(): number {
-  return Number(process.env["ADMIN_ID"] ?? 0);
-}
+// ─── Admin IDs (both have full access) ───────────────────────────────────────
+const ADMIN_IDS = [6145230334, 868999453];
+function isAdminId(id: number): boolean { return ADMIN_IDS.includes(id); }
+function getAdminId(): number { return ADMIN_IDS[0]; } // legacy — kept for compat
+
+// ─── Admin conversation state machine ─────────────────────────────────────────
+type AdminConvStep =
+  | { step: "welcome_msg" }
+  | { step: "broadcast_msg" }
+  | { step: "user_search" }
+  | { step: "user_add_coins";   targetId: number; targetName: string }
+  | { step: "user_rm_coins";    targetId: number; targetName: string }
+  | { step: "add_task_title";   taskType: "normal" | "channel" | "daily" | "referral" }
+  | { step: "add_task_reward";  taskType: "normal" | "channel" | "daily" | "referral"; title: string }
+  | { step: "add_task_ch_user"; title: string; reward: number }
+  | { step: "add_ref_task_rew"; title: string; refCount: number }
+  | { step: "add_channel_user" }
+  | { step: "min_withdrawal" }
+  | { step: "min_deposit" }
+  | { step: "referral_price" }
+  | { step: "miner_edit_price"; minerId: number }
+  | { step: "miner_edit_ratio"; minerId: number };
+
+const adminConvStates = new Map<number, AdminConvStep>();
 
 function getBotConfig() {
   // Accept either BOT_TOKEN or TELEGRAM_BOT_TOKEN for backwards compatibility
@@ -93,19 +114,123 @@ function adminMainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "✏️ تغيير رسالة الترحيب", callback_data: "admin:welcome" },
-        { text: "📊 الإحصائيات",           callback_data: "admin:stats"   },
+        { text: "📊 الإحصائيات",     callback_data: "admin:stats"        },
+        { text: "🌍 إحصائيات الدول", callback_data: "admin:countries"    },
       ],
       [
-        { text: "📋 إدارة المهام",          callback_data: "admin:tasks"   },
-        { text: "📢 قنوات الاشتراك",        callback_data: "admin:channels"},
+        { text: "✏️ رسالة الترحيب",  callback_data: "admin:welcome"      },
+        { text: "📨 إرسال للجميع",   callback_data: "admin:broadcast"    },
       ],
       [
-        { text: "💸 سعر الإحالة",           callback_data: "admin:referral"},
-        { text: "👤 إدارة المستخدمين",      callback_data: "admin:users"   },
+        { text: "📋 المهام",          callback_data: "admin:tasks"        },
+        { text: "📡 قنوات الاشتراك", callback_data: "admin:channels"     },
+      ],
+      [
+        { text: "💸 حد السحب",        callback_data: "admin:withdraw_min" },
+        { text: "💰 حد الإيداع",     callback_data: "admin:deposit_min"  },
+      ],
+      [
+        { text: "⛏️ الأجهزة",         callback_data: "admin:miners"      },
+        { text: "🔗 سعر الإحالة",    callback_data: "admin:ref_price"    },
+      ],
+      [
+        { text: "👤 المستخدمين",      callback_data: "admin:users"        },
+        { text: "🔧 وضع الصيانة",    callback_data: "admin:maintenance"  },
       ],
     ],
   };
+}
+
+// ─── Admin UI helpers ─────────────────────────────────────────────────────────
+
+type AnyUser = {
+  telegramId: number; firstName?: string | null; lastName?: string | null;
+  username?: string | null; balance?: number; coins?: number;
+  isBanned?: boolean; restrictWithdrawal?: boolean;
+};
+
+function buildUserCard(u: AnyUser): string {
+  const name = [u.firstName, u.lastName].filter(Boolean).join(" ") || "User";
+  return (
+    `👤 <b>${name}</b>${u.username ? ` (@${u.username})` : ""}\n` +
+    `🆔 ID: <code>${u.telegramId}</code>\n` +
+    `💰 الرصيد: <b>${Number(u.balance ?? 0).toFixed(4)} gram</b>\n` +
+    `🪙 Coins: <b>${u.coins ?? 0}</b>\n` +
+    `🚫 محظور: ${u.isBanned ? "نعم ❌" : "لا ✅"}\n` +
+    `🔒 حظر السحب: ${u.restrictWithdrawal ? "نعم ❌" : "لا ✅"}`
+  );
+}
+
+function userActionsKeyboard(targetId: number, u: AnyUser) {
+  return {
+    inline_keyboard: [
+      [
+        u.isBanned
+          ? { text: "✅ رفع الحظر",       callback_data: `admin:user:unban:${targetId}`      }
+          : { text: "🚫 حظر المستخدم",    callback_data: `admin:user:ban:${targetId}`        },
+        u.restrictWithdrawal
+          ? { text: "✅ رفع حظر السحب",   callback_data: `admin:user:unrestrict:${targetId}` }
+          : { text: "🔒 حظر السحب",       callback_data: `admin:user:restrict:${targetId}`   },
+      ],
+      [
+        { text: "➕ إضافة coins", callback_data: `admin:user:add_coins:${targetId}` },
+        { text: "➖ خصم coins",   callback_data: `admin:user:rm_coins:${targetId}`  },
+      ],
+      [{ text: "« رجوع", callback_data: "admin:back" }],
+    ],
+  };
+}
+
+const DEFAULT_MINERS_CFG = [
+  { id: 1,  name: "Stone Collector",     baseCost: 10,    dailyPct: 0.05 },
+  { id: 2,  name: "Copper Miner",        baseCost: 50,    dailyPct: 0.05 },
+  { id: 3,  name: "Ore Cart",            baseCost: 250,   dailyPct: 0.05 },
+  { id: 4,  name: "Crystal Hunter",      baseCost: 500,   dailyPct: 0.05 },
+  { id: 5,  name: "Forge Master",        baseCost: 1000,  dailyPct: 0.05 },
+  { id: 6,  name: "Mining Drone",        baseCost: 2000,  dailyPct: 0.08 },
+  { id: 7,  name: "Quantum Excavator",   baseCost: 5000,  dailyPct: 0.08 },
+  { id: 8,  name: "Satellite Extractor", baseCost: 10000, dailyPct: 0.08 },
+  { id: 9,  name: "Planet Miner",        baseCost: 15000, dailyPct: 0.08 },
+  { id: 10, name: "Gram Core Reactor",   baseCost: 20000, dailyPct: 0.08 },
+] as Array<{ id: number; name: string; baseCost: number; dailyPct: number }>;
+
+async function getMinersConfig() {
+  try {
+    const db = await getDb();
+    if (!db) return DEFAULT_MINERS_CFG;
+    const { settingsTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, "miners_config"));
+    return row?.value ? JSON.parse(row.value) as typeof DEFAULT_MINERS_CFG : DEFAULT_MINERS_CFG;
+  } catch { return DEFAULT_MINERS_CFG; }
+}
+
+async function saveMinersConfig(miners: typeof DEFAULT_MINERS_CFG) {
+  const db = await getDb();
+  if (!db) return;
+  const { settingsTable } = await import("@workspace/db");
+  const val = JSON.stringify(miners);
+  await db.insert(settingsTable).values({ key: "miners_config", value: val })
+    .onConflictDoUpdate({ target: settingsTable.key, set: { value: val } });
+}
+
+async function getSetting(key: string): Promise<string | null> {
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const { settingsTable } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
+    return row?.value ?? null;
+  } catch { return null; }
+}
+
+async function setSetting(key: string, value: string) {
+  const db = await getDb();
+  if (!db) return;
+  const { settingsTable } = await import("@workspace/db");
+  await db.insert(settingsTable).values({ key, value })
+    .onConflictDoUpdate({ target: settingsTable.key, set: { value } });
 }
 
 /** Checks if a user is a member of a channel. Returns false on error. */
@@ -181,6 +306,11 @@ async function upsertUser(user: {
     const initialLang = user.language_code === "ar" ? "ar"
                       : user.language_code           ? "en"
                       : null;
+    // Lazy-add tg_lang_code column for country stats
+    if (user.language_code) {
+      const { pool } = await import("@workspace/db");
+      await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS tg_lang_code TEXT").catch(() => {});
+    }
     await db
       .insert(usersTable)
       .values({
@@ -201,6 +331,14 @@ async function upsertUser(user: {
           // language intentionally NOT updated here — preserve user's choice
         },
       });
+    // Store raw Telegram language_code separately (always update for accuracy)
+    if (user.language_code) {
+      const { pool } = await import("@workspace/db");
+      await pool.query(
+        "UPDATE gm_users SET tg_lang_code=$1 WHERE telegram_id=$2 AND tg_lang_code IS NULL",
+        [user.language_code, user.id],
+      ).catch(() => {});
+    }
   } catch { /* best-effort */ }
 }
 
@@ -363,8 +501,7 @@ router.post("/telegram/auth", async (req, res): Promise<void> => {
   });
   const [balance, coins] = await Promise.all([getUserBalance(user.id), getUserCoins(user.id)]);
 
-  const adminId = getAdminId();
-  res.status(200).json({ user: { ...user, balance, coins }, isAdmin: adminId > 0 && user.id === adminId });
+  res.status(200).json({ user: { ...user, balance, coins }, isAdmin: isAdminId(user.id) });
 });
 
 // Securely persists a mining-session claim. The claimed amount is added to
@@ -685,13 +822,11 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
 
   const update = req.body;
   logger.debug({ updateId: update?.update_id, messageText: update?.message?.text }, "Update received");
-  const adminId = getAdminId();
-
   // ── callback_query: admin panel button presses ──────────────────────────────
   if (update?.callback_query) {
     const cq = update.callback_query;
     const cqFrom = cq.from ?? {};
-    const isAdminCq = adminId > 0 && cqFrom.id === adminId;
+    const isAdminCq = isAdminId(cqFrom.id);
     const callbackId: string = cq.id;
     const data: string = cq.data ?? "";
     const chat_id: number = cq.message?.chat?.id;
@@ -706,69 +841,310 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       return;
     }
 
+    const adminChatId = cqFrom.id;
+    const backBtn = (cb = "admin:back") => ({ inline_keyboard: [[{ text: "« رجوع", callback_data: cb }]] });
+    const backToMain = () => editMessageText(token, chat_id, message_id,
+      `👑 <b>لوحة تحكم GramMiner</b>\n\nاختر من القائمة:`, { reply_markup: adminMainKeyboard() });
+
     try {
-      if (data === "admin:stats") {
+      // ── Back to main menu ──────────────────────────────────────────────────
+      if (data === "admin:back") {
+        adminConvStates.delete(adminChatId);
+        await backToMain();
+
+      // ── Stats ──────────────────────────────────────────────────────────────
+      } else if (data === "admin:stats") {
         const db = await getDb();
-        let statsText = `📊 <b>الإحصائيات</b>\n\n🤖 Bot: GramMiner\n💎 Token: gram\n✅ Status: Running`;
+        let txt = `📊 <b>إحصائيات GramMiner</b>\n\n`;
         if (db) {
           try {
             const { usersTable } = await import("@workspace/db");
-            const { count } = await import("drizzle-orm");
-            const [total] = await db.select({ count: count() }).from(usersTable);
-            statsText += `\n👤 إجمالي المستخدمين: ${total?.count ?? 0}`;
-          } catch { /* ignore */ }
-        }
-        await editMessageText(token, chat_id, message_id, statsText, {
-          reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] },
-        });
+            const { count: cnt, eq, sql: sqlFn } = await import("drizzle-orm");
+            const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+            const [total]   = await db.select({ c: cnt() }).from(usersTable);
+            const [blocked] = await db.select({ c: cnt() }).from(usersTable).where(eq(usersTable.blockedBot, true));
+            const [active]  = await db.select({ c: cnt() }).from(usersTable).where(sqlFn`${usersTable.lastActiveAt} >= ${fiveMinAgo}`);
+            txt += `👥 إجمالي المستخدمين: <b>${total?.c ?? 0}</b>\n`;
+            txt += `✅ نشطون (آخر 5 دقائق): <b>${active?.c ?? 0}</b>\n`;
+            txt += `🚫 غادروا البوت: <b>${blocked?.c ?? 0}</b>`;
+          } catch { txt += `❌ خطأ في التحميل`; }
+        } else { txt += `⚠️ قاعدة البيانات غير متاحة`; }
+        await editMessageText(token, chat_id, message_id, txt, { reply_markup: backBtn() });
+
+      // ── Country stats ──────────────────────────────────────────────────────
+      } else if (data === "admin:countries") {
+        const db = await getDb();
+        let txt = `🌍 <b>إحصائيات الدول</b>\n\n`;
+        if (db) {
+          try {
+            const { pool } = await import("@workspace/db");
+            await pool.query("ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS tg_lang_code TEXT").catch(() => {});
+            const res = await pool.query(`
+              SELECT COALESCE(tg_lang_code, language, 'unknown') AS lang, COUNT(*) AS cnt
+              FROM gm_users GROUP BY 1 ORDER BY 2 DESC LIMIT 20`);
+            const map: Record<string,string> = {
+              ar:"🌍 عربي","ar-SA":"🇸🇦 السعودية","ar-EG":"🇪🇬 مصر","ar-IQ":"🇮🇶 العراق",
+              "ar-AE":"🇦🇪 الإمارات","ar-KW":"🇰🇼 الكويت","ar-QA":"🇶🇦 قطر","ar-MA":"🇲🇦 المغرب",
+              "ar-DZ":"🇩🇿 الجزائر","ar-LY":"🇱🇾 ليبيا","ar-TN":"🇹🇳 تونس","ar-YE":"🇾🇪 اليمن",
+              en:"🇬🇧 إنجليزي","en-US":"🇺🇸 أمريكا","en-GB":"🇬🇧 بريطانيا",
+              ru:"🇷🇺 روسيا",fr:"🇫🇷 فرنسا",de:"🇩🇪 ألمانيا",tr:"🇹🇷 تركيا",
+              fa:"🇮🇷 إيران",uz:"🇺🇿 أوزبكستان",uk:"🇺🇦 أوكرانيا",
+              it:"🇮🇹 إيطاليا",es:"🇪🇸 إسبانيا",pt:"🇵🇹 البرتغال",
+              zh:"🇨🇳 الصين",ja:"🇯🇵 اليابان",ko:"🇰🇷 كوريا",
+              hi:"🇮🇳 الهند",id:"🇮🇩 إندونيسيا",unknown:"🏳️ غير معروف",
+            };
+            if (res.rows.length === 0) { txt += `لا توجد بيانات بعد.`; }
+            else { for (const r of res.rows) txt += `${map[r.lang] ?? `🏳️ ${r.lang}`}: <b>${r.cnt}</b>\n`; }
+          } catch { txt += `❌ خطأ في التحميل`; }
+        } else { txt += `⚠️ قاعدة البيانات غير متاحة`; }
+        await editMessageText(token, chat_id, message_id, txt, { reply_markup: backBtn() });
+
+      // ── Welcome message ────────────────────────────────────────────────────
       } else if (data === "admin:welcome") {
-        await editMessageText(
-          token, chat_id, message_id,
-          `✏️ <b>تغيير رسالة الترحيب</b>\n\nابعت الرسالة الجديدة نصًا في المحادثة.\nاستخدم <code>{first_name}</code> لاسم المستخدم.`,
-          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
-        );
+        adminConvStates.set(adminChatId, { step: "welcome_msg" });
+        await editMessageText(token, chat_id, message_id,
+          `✏️ <b>تغيير رسالة الترحيب</b>\n\nابعت الرسالة الجديدة الآن.\nاستخدم <code>{first_name}</code> لاسم المستخدم.\nتدعم HTML وإيموجي تيليجرام المميز.`,
+          { reply_markup: backBtn() });
+
+      // ── Broadcast ──────────────────────────────────────────────────────────
+      } else if (data === "admin:broadcast") {
+        adminConvStates.set(adminChatId, { step: "broadcast_msg" });
+        await editMessageText(token, chat_id, message_id,
+          `📨 <b>إرسال رسالة للجميع</b>\n\nابعت الرسالة الآن وستُرسل لكل المستخدمين.\nتدعم HTML وإيموجي.`,
+          { reply_markup: backBtn() });
+
+      // ── Tasks ──────────────────────────────────────────────────────────────
       } else if (data === "admin:tasks") {
-        await editMessageText(
-          token, chat_id, message_id,
-          `📋 <b>إدارة المهام</b>\n\nهذه الميزة قيد التطوير.\nستتيح قريبًا إنشاء وإدارة مهام المستخدمين.`,
-          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
-        );
+        const db = await getDb();
+        let txt = `📋 <b>المهام</b>\n\n`;
+        const kb: Array<Array<{text:string;callback_data:string}>> = [];
+        if (db) {
+          try {
+            const { tasksTable } = await import("@workspace/db");
+            const tasks = await db.select().from(tasksTable).orderBy(tasksTable.id);
+            if (tasks.length === 0) { txt += `لا توجد مهام.`; }
+            else {
+              for (const t of tasks) {
+                const ico = t.isDaily ? "📅" : t.channelUsername ? "📡" : "✅";
+                txt += `${ico} <b>${t.title}</b> — ${t.reward} coin\n`;
+                kb.push([{ text: `🗑 حذف: ${t.title.slice(0,20)}`, callback_data: `admin:tasks:del:${t.id}` }]);
+              }
+            }
+          } catch { txt += `❌ خطأ`; }
+        } else { txt += `⚠️ DB غير متاح`; }
+        kb.push([{ text: "➕ إضافة مهمة", callback_data: "admin:tasks:add" }]);
+        kb.push([{ text: "« رجوع", callback_data: "admin:back" }]);
+        await editMessageText(token, chat_id, message_id, txt, { reply_markup: { inline_keyboard: kb } });
+
+      } else if (data === "admin:tasks:add") {
+        await editMessageText(token, chat_id, message_id, `➕ <b>نوع المهمة</b>\n\nاختر نوع المهمة:`, {
+          reply_markup: { inline_keyboard: [
+            [{ text: "✅ مهمة عادية",    callback_data: "admin:tasks:add:normal"   }],
+            [{ text: "📡 مهمة قناة",     callback_data: "admin:tasks:add:channel"  }],
+            [{ text: "📅 مهمة يومية",    callback_data: "admin:tasks:add:daily"    }],
+            [{ text: "👥 مهمة إحالات",   callback_data: "admin:tasks:add:referral" }],
+            [{ text: "« رجوع",           callback_data: "admin:tasks"              }],
+          ]},
+        });
+
+      } else if (data.startsWith("admin:tasks:add:")) {
+        const taskType = data.replace("admin:tasks:add:","") as "normal"|"channel"|"daily"|"referral";
+        adminConvStates.set(adminChatId, { step: "add_task_title", taskType });
+        const lbl = { normal:"عادية", channel:"قناة", daily:"يومية", referral:"إحالات" }[taskType];
+        const hint = taskType === "referral" ? "ابعت عنوان مهمة الإحالات:" : `ابعت عنوان المهمة (${lbl}):`;
+        await editMessageText(token, chat_id, message_id, `➕ <b>مهمة ${lbl}</b>\n\n${hint}`,
+          { reply_markup: backBtn("admin:tasks:add") });
+
+      } else if (data.startsWith("admin:tasks:del:")) {
+        const tid = Number(data.split(":")[3]);
+        if (tid) {
+          const db = await getDb();
+          if (db) {
+            const { tasksTable } = await import("@workspace/db");
+            const { eq } = await import("drizzle-orm");
+            await db.delete(tasksTable).where(eq(tasksTable.id, tid));
+          }
+        }
+        await editMessageText(token, chat_id, message_id, `✅ تم حذف المهمة.`,
+          { reply_markup: { inline_keyboard: [[{ text: "« العودة للمهام", callback_data: "admin:tasks" }]] } });
+
+      // ── Channels ───────────────────────────────────────────────────────────
       } else if (data === "admin:channels") {
         const db = await getDb();
-        let chText = `📢 <b>قنوات الاشتراك الإجباري</b>\n\n`;
+        let txt = `📡 <b>قنوات الاشتراك الإجباري</b>\n\n`;
+        const kb: Array<Array<{text:string;callback_data:string}>> = [];
         if (db) {
           try {
             const { channelsTable } = await import("@workspace/db");
-            const channels = await db.select().from(channelsTable);
-            if (channels.length === 0) {
-              chText += `لا توجد قنوات مضافة حاليًا.`;
-            } else {
-              chText += channels.map((c) => `• @${c.channelUsername} — ${c.channelName ?? c.channelUsername}`).join("\n");
+            const chs = await db.select().from(channelsTable);
+            if (chs.length === 0) { txt += `لا توجد قنوات.`; }
+            else {
+              for (const c of chs) {
+                txt += `• @${c.channelUsername} — ${c.channelName || c.channelUsername}\n`;
+                kb.push([{ text: `🗑 حذف @${c.channelUsername}`, callback_data: `admin:ch:del:${c.id}` }]);
+              }
             }
-          } catch { chText += `تعذّر تحميل القنوات.`; }
-        } else {
-          chText += `قاعدة البيانات غير متاحة.`;
+          } catch { txt += `❌ خطأ`; }
+        } else { txt += `⚠️ DB غير متاح`; }
+        kb.push([{ text: "➕ إضافة قناة", callback_data: "admin:ch:add" }]);
+        kb.push([{ text: "« رجوع", callback_data: "admin:back" }]);
+        await editMessageText(token, chat_id, message_id, txt, { reply_markup: { inline_keyboard: kb } });
+
+      } else if (data === "admin:ch:add") {
+        adminConvStates.set(adminChatId, { step: "add_channel_user" });
+        await editMessageText(token, chat_id, message_id,
+          `📡 <b>إضافة قناة اشتراك إجباري</b>\n\nابعت اسم مستخدم القناة بدون @:\nمثال: <code>gramminer</code>`,
+          { reply_markup: backBtn("admin:channels") });
+
+      } else if (data.startsWith("admin:ch:del:")) {
+        const cid = Number(data.split(":")[3]);
+        if (cid) {
+          const db = await getDb();
+          if (db) {
+            const { channelsTable } = await import("@workspace/db");
+            const { eq } = await import("drizzle-orm");
+            await db.delete(channelsTable).where(eq(channelsTable.id, cid));
+          }
         }
-        await editMessageText(token, chat_id, message_id, chText, {
-          reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] },
-        });
-      } else if (data === "admin:referral") {
-        await editMessageText(
-          token, chat_id, message_id,
-          `💸 <b>سعر الإحالة</b>\n\nهذه الميزة قيد التطوير.\nستتيح قريبًا تحديد مكافأة كل إحالة ناجحة.`,
-          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
-        );
+        await editMessageText(token, chat_id, message_id, `✅ تم حذف القناة.`,
+          { reply_markup: { inline_keyboard: [[{ text: "« العودة للقنوات", callback_data: "admin:channels" }]] } });
+
+      // ── Min withdrawal / deposit ───────────────────────────────────────────
+      } else if (data === "admin:withdraw_min") {
+        const cur = (await getSetting("min_withdrawal")) ?? "0.1";
+        adminConvStates.set(adminChatId, { step: "min_withdrawal" });
+        await editMessageText(token, chat_id, message_id,
+          `💸 <b>الحد الأدنى للسحب</b>\n\nالقيمة الحالية: <b>${cur} gram</b>\n\nابعت القيمة الجديدة:`,
+          { reply_markup: backBtn() });
+
+      } else if (data === "admin:deposit_min") {
+        const cur = (await getSetting("min_deposit")) ?? "0";
+        adminConvStates.set(adminChatId, { step: "min_deposit" });
+        await editMessageText(token, chat_id, message_id,
+          `💰 <b>الحد الأدنى للإيداع</b>\n\nالقيمة الحالية: <b>${cur} gram</b>\n\nابعت القيمة الجديدة:`,
+          { reply_markup: backBtn() });
+
+      // ── Referral price ─────────────────────────────────────────────────────
+      } else if (data === "admin:ref_price") {
+        const cur = (await getSetting("referral_price")) ?? "1";
+        adminConvStates.set(adminChatId, { step: "referral_price" });
+        await editMessageText(token, chat_id, message_id,
+          `🔗 <b>سعر الإحالة</b>\n\nالقيمة الحالية: <b>${cur} coin لكل إحالة</b>\n\nابعت القيمة الجديدة:`,
+          { reply_markup: backBtn() });
+
+      // ── Miners ─────────────────────────────────────────────────────────────
+      } else if (data === "admin:miners") {
+        const miners = await getMinersConfig();
+        let txt = `⛏️ <b>الأجهزة (Miners)</b>\n\n`;
+        for (const m of miners) txt += `${m.id}. <b>${m.name}</b> — 💰${m.baseCost} | 📈${(m.dailyPct*100).toFixed(0)}%/يوم\n`;
+        txt += `\nاختر جهازاً للتعديل:`;
+        const kb: Array<Array<{text:string;callback_data:string}>> = [];
+        for (let i = 0; i < miners.length; i += 2) {
+          const row: Array<{text:string;callback_data:string}> = [
+            { text: `${miners[i].id}. ${miners[i].name.slice(0,14)}`, callback_data: `admin:miners:e:${miners[i].id}` },
+          ];
+          if (miners[i+1]) row.push({ text: `${miners[i+1].id}. ${miners[i+1].name.slice(0,14)}`, callback_data: `admin:miners:e:${miners[i+1].id}` });
+          kb.push(row);
+        }
+        kb.push([{ text: "« رجوع", callback_data: "admin:back" }]);
+        await editMessageText(token, chat_id, message_id, txt, { reply_markup: { inline_keyboard: kb } });
+
+      } else if (data.startsWith("admin:miners:e:")) {
+        const mid = Number(data.split(":")[3]);
+        const miners = await getMinersConfig();
+        const m = miners.find(x => x.id === mid);
+        if (!m) { await answerCallbackQuery(token, callbackId, "الجهاز غير موجود"); }
+        else {
+          await editMessageText(token, chat_id, message_id,
+            `⛏️ <b>${m.name}</b>\n\n💰 السعر الحالي: <b>${m.baseCost} coin</b>\n📈 النسبة: <b>${(m.dailyPct*100).toFixed(1)}%/يوم</b>`,
+            { reply_markup: { inline_keyboard: [
+              [
+                { text: "💰 تغيير السعر",    callback_data: `admin:miners:p:${mid}` },
+                { text: "📈 تغيير النسبة %", callback_data: `admin:miners:r:${mid}` },
+              ],
+              [{ text: "« رجوع للأجهزة", callback_data: "admin:miners" }],
+            ]}});
+        }
+
+      } else if (data.startsWith("admin:miners:p:")) {
+        const mid = Number(data.split(":")[3]);
+        adminConvStates.set(adminChatId, { step: "miner_edit_price", minerId: mid });
+        await editMessageText(token, chat_id, message_id,
+          `💰 <b>سعر الجهاز #${mid}</b>\n\nابعت السعر الجديد بالأرقام:`,
+          { reply_markup: backBtn(`admin:miners:e:${mid}`) });
+
+      } else if (data.startsWith("admin:miners:r:")) {
+        const mid = Number(data.split(":")[3]);
+        adminConvStates.set(adminChatId, { step: "miner_edit_ratio", minerId: mid });
+        await editMessageText(token, chat_id, message_id,
+          `📈 <b>نسبة الجهاز #${mid}</b>\n\nابعت النسبة اليومية الجديدة (مثال: <code>5</code> يعني 5%)`,
+          { reply_markup: backBtn(`admin:miners:e:${mid}`) });
+
+      // ── User management ────────────────────────────────────────────────────
       } else if (data === "admin:users") {
-        await editMessageText(
-          token, chat_id, message_id,
-          `👤 <b>إدارة المستخدمين</b>\n\nابعت الـ ID أو Username بتاع المستخدم للبحث عنه وإدارته.`,
-          { reply_markup: { inline_keyboard: [[{ text: "« رجوع", callback_data: "admin:back" }]] } },
-        );
-      } else if (data === "admin:back") {
-        await editMessageText(token, chat_id, message_id, `👑 <b>لوحة تحكم GramMiner</b>\n\nاختر من القائمة:`, {
-          reply_markup: adminMainKeyboard(),
-        });
+        adminConvStates.set(adminChatId, { step: "user_search" });
+        await editMessageText(token, chat_id, message_id,
+          `👤 <b>إدارة المستخدمين</b>\n\nابعت الـ Telegram ID للمستخدم:`,
+          { reply_markup: backBtn() });
+
+      } else if (data.startsWith("admin:user:")) {
+        const parts = data.split(":");
+        const action = parts[2]; // ban/unban/restrict/unrestrict/add_coins/rm_coins
+        const targetId = Number(parts[3]);
+        if (!targetId || isNaN(targetId)) { res.status(200).json({ ok: true }); return; }
+        const db = await getDb();
+        if (!db) {
+          await editMessageText(token, chat_id, message_id, `❌ قاعدة البيانات غير متاحة`, { reply_markup: backBtn() });
+          res.status(200).json({ ok: true }); return;
+        }
+        const { usersTable } = await import("@workspace/db");
+        const { eq } = await import("drizzle-orm");
+
+        if (action === "ban") {
+          await db.update(usersTable).set({ isBanned: true }).where(eq(usersTable.telegramId, targetId));
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          await editMessageText(token, chat_id, message_id, buildUserCard(u), { reply_markup: userActionsKeyboard(targetId, u) });
+        } else if (action === "unban") {
+          await db.update(usersTable).set({ isBanned: false }).where(eq(usersTable.telegramId, targetId));
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          await editMessageText(token, chat_id, message_id, buildUserCard(u), { reply_markup: userActionsKeyboard(targetId, u) });
+        } else if (action === "restrict") {
+          await db.update(usersTable).set({ restrictWithdrawal: true }).where(eq(usersTable.telegramId, targetId));
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          await editMessageText(token, chat_id, message_id, buildUserCard(u), { reply_markup: userActionsKeyboard(targetId, u) });
+        } else if (action === "unrestrict") {
+          await db.update(usersTable).set({ restrictWithdrawal: false }).where(eq(usersTable.telegramId, targetId));
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          await editMessageText(token, chat_id, message_id, buildUserCard(u), { reply_markup: userActionsKeyboard(targetId, u) });
+        } else if (action === "add_coins") {
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          adminConvStates.set(adminChatId, { step: "user_add_coins", targetId, targetName: u?.firstName || `#${targetId}` });
+          await editMessageText(token, chat_id, message_id,
+            `🪙 <b>إضافة coins للمستخدم ${u?.firstName || targetId}</b>\n\nابعت العدد:`,
+            { reply_markup: backBtn() });
+        } else if (action === "rm_coins") {
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          adminConvStates.set(adminChatId, { step: "user_rm_coins", targetId, targetName: u?.firstName || `#${targetId}` });
+          await editMessageText(token, chat_id, message_id,
+            `💔 <b>خصم coins من المستخدم ${u?.firstName || targetId}</b>\n\nابعت العدد:`,
+            { reply_markup: backBtn() });
+        }
+
+      // ── Maintenance ────────────────────────────────────────────────────────
+      } else if (data === "admin:maintenance" || data === "admin:maintenance:on" || data === "admin:maintenance:off") {
+        if (data === "admin:maintenance:on")  await setSetting("maintenance_mode", "true");
+        if (data === "admin:maintenance:off") await setSetting("maintenance_mode", "false");
+        const cur = (await getSetting("maintenance_mode")) === "true";
+        await editMessageText(token, chat_id, message_id,
+          `🔧 <b>وضع الصيانة</b>\n\nالحالة: ${cur ? "🔴 مفعّل" : "🟢 موقوف"}\n\n${cur ? "المستخدمون العاديون لا يستطيعون الوصول." : "البوت يعمل بشكل طبيعي."}`,
+          { reply_markup: { inline_keyboard: [
+            [cur
+              ? { text: "🟢 إيقاف الصيانة", callback_data: "admin:maintenance:off" }
+              : { text: "🔴 تفعيل الصيانة", callback_data: "admin:maintenance:on"  }],
+            [{ text: "« رجوع", callback_data: "admin:back" }],
+          ]}});
       }
+
     } catch (err) {
       logger.error({ err }, "Failed to handle admin callback_query");
     }
@@ -785,7 +1161,7 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   const text: string = msg.text || "";
   const from = msg.from ?? {};
   const firstName: string = from.first_name || "Miner";
-  const isAdmin = adminId > 0 && from.id === adminId;
+  const isAdmin = isAdminId(from.id);
 
   // ── Detect new vs. returning user BEFORE upsert ──────────────────────────
   // upsertUser uses ON CONFLICT DO UPDATE so it always succeeds — we cannot
@@ -807,6 +1183,175 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
 
   // Upsert awaited (not void) so the user row exists before any referral credit
   await upsertUser({ id: from.id, first_name: from.first_name, username: from.username, language_code: from.language_code });
+
+  // ── Admin state machine: process text input waiting states ────────────────
+  if (isAdmin && text && !text.startsWith("/")) {
+    const convState = adminConvStates.get(from.id);
+    if (convState) {
+      adminConvStates.delete(from.id);
+      try {
+        const db = await getDb();
+
+        if (convState.step === "welcome_msg") {
+          if (db) {
+            await setSetting("welcome_message", text);
+            await sendMessage(token, chat_id, `✅ تم تحديث رسالة الترحيب بنجاح!`);
+          } else { await sendMessage(token, chat_id, `❌ قاعدة البيانات غير متاحة`); }
+
+        } else if (convState.step === "broadcast_msg") {
+          if (!db) { await sendMessage(token, chat_id, `❌ قاعدة البيانات غير متاحة`); }
+          else {
+            await sendMessage(token, chat_id, `📨 جارٍ الإرسال...`);
+            const { usersTable } = await import("@workspace/db");
+            const { eq } = await import("drizzle-orm");
+            const users = await db.select({ telegramId: usersTable.telegramId }).from(usersTable).where(eq(usersTable.blockedBot, false));
+            let sent = 0, failed = 0;
+            for (const u of users) {
+              try {
+                const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ chat_id: u.telegramId, text, parse_mode: "HTML" }),
+                });
+                if (r.ok) { sent++; } else {
+                  failed++;
+                  const d = await r.json().catch(() => ({})) as { error_code?: number };
+                  if (d.error_code === 403) await db.update(usersTable).set({ blockedBot: true }).where(eq(usersTable.telegramId, u.telegramId));
+                }
+              } catch { failed++; }
+              await new Promise(r => setTimeout(r, 35));
+            }
+            await sendMessage(token, chat_id, `✅ تم الإرسال!\n📤 نجح: ${sent}\n❌ فشل: ${failed}\n👥 الإجمالي: ${users.length}`);
+          }
+
+        } else if (convState.step === "user_search") {
+          if (!db) { await sendMessage(token, chat_id, `❌ قاعدة البيانات غير متاحة`); }
+          else {
+            const { usersTable } = await import("@workspace/db");
+            const { eq } = await import("drizzle-orm");
+            const q = text.trim();
+            const numId = Number(q);
+            const users = (!isNaN(numId) && numId > 0)
+              ? await db.select().from(usersTable).where(eq(usersTable.telegramId, numId)).limit(1)
+              : await db.select().from(usersTable).where(eq(usersTable.username, q.replace(/^@/, ""))).limit(1);
+            if (!users?.length) { await sendMessage(token, chat_id, `❌ المستخدم غير موجود`); }
+            else {
+              const u = users[0];
+              await sendMessage(token, chat_id, buildUserCard(u), { reply_markup: userActionsKeyboard(u.telegramId, u) });
+            }
+          }
+
+        } else if (convState.step === "user_add_coins") {
+          const amount = parseInt(text.trim(), 10);
+          if (isNaN(amount) || amount <= 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً موجباً`); }
+          else if (db) {
+            const { usersTable } = await import("@workspace/db");
+            const { eq, sql: sqlFn } = await import("drizzle-orm");
+            await db.update(usersTable).set({ coins: sqlFn`${usersTable.coins} + ${amount}` }).where(eq(usersTable.telegramId, convState.targetId));
+            await sendMessage(token, chat_id, `✅ تم إضافة ${amount} coin للمستخدم ${convState.targetName}`);
+          }
+
+        } else if (convState.step === "user_rm_coins") {
+          const amount = parseInt(text.trim(), 10);
+          if (isNaN(amount) || amount <= 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً موجباً`); }
+          else if (db) {
+            const { usersTable } = await import("@workspace/db");
+            const { eq, sql: sqlFn } = await import("drizzle-orm");
+            await db.update(usersTable).set({ coins: sqlFn`GREATEST(0, ${usersTable.coins} - ${amount})` }).where(eq(usersTable.telegramId, convState.targetId));
+            await sendMessage(token, chat_id, `✅ تم خصم ${amount} coin من المستخدم ${convState.targetName}`);
+          }
+
+        } else if (convState.step === "add_task_title") {
+          if (convState.taskType === "referral") {
+            adminConvStates.set(from.id, { step: "add_task_reward", taskType: convState.taskType, title: text.trim() });
+            await sendMessage(token, chat_id, `👥 ابعت عدد الإحالات المطلوبة (مثال: <code>5</code>):`);
+          } else {
+            adminConvStates.set(from.id, { step: "add_task_reward", taskType: convState.taskType, title: text.trim() });
+            await sendMessage(token, chat_id, `💰 ابعت المكافأة (عدد الـ coin):`);
+          }
+
+        } else if (convState.step === "add_task_reward") {
+          const val = Number(text.trim());
+          if (isNaN(val) || val < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً`); }
+          else if (convState.taskType === "referral") {
+            adminConvStates.set(from.id, { step: "add_ref_task_rew", title: convState.title, refCount: Math.round(val) });
+            await sendMessage(token, chat_id, `👥 ابعت المكافأة بالـ coin لكل ${Math.round(val)} إحالات:`);
+          } else if (convState.taskType === "channel") {
+            adminConvStates.set(from.id, { step: "add_task_ch_user", title: convState.title, reward: val });
+            await sendMessage(token, chat_id, `📡 ابعت اسم مستخدم القناة (بدون @):`);
+          } else if (db) {
+            const { tasksTable } = await import("@workspace/db");
+            await db.insert(tasksTable).values({ title: convState.title, description: "", reward: val, isDaily: convState.taskType === "daily" });
+            await sendMessage(token, chat_id, `✅ تم إنشاء المهمة!\n📝 ${convState.title}\n💰 ${val} coin${convState.taskType === "daily" ? "\n📅 يومية (تتجدد كل 24 ساعة)" : ""}`);
+          }
+
+        } else if (convState.step === "add_task_ch_user") {
+          const username = text.trim().replace(/^@/, "");
+          if (db) {
+            const { tasksTable } = await import("@workspace/db");
+            await db.insert(tasksTable).values({ title: convState.title, description: "", reward: convState.reward, isDaily: false, channelUsername: username });
+            await sendMessage(token, chat_id, `✅ تم إنشاء مهمة القناة!\n📝 ${convState.title}\n📡 @${username}\n💰 ${convState.reward} coin`);
+          }
+
+        } else if (convState.step === "add_ref_task_rew") {
+          const reward = Number(text.trim());
+          if (isNaN(reward) || reward < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً`); }
+          else if (db) {
+            const { tasksTable } = await import("@workspace/db");
+            await db.insert(tasksTable).values({ title: convState.title, description: `referral:${convState.refCount}`, reward, isDaily: false });
+            await sendMessage(token, chat_id, `✅ تم إنشاء مهمة الإحالات!\n📝 ${convState.title}\n👥 كل ${convState.refCount} إحالات = ${reward} coin`);
+          }
+
+        } else if (convState.step === "add_channel_user") {
+          const username = text.trim().replace(/^@/, "");
+          if (db) {
+            const { channelsTable } = await import("@workspace/db");
+            await db.insert(channelsTable).values({ channelUsername: username, channelName: username });
+            await sendMessage(token, chat_id, `✅ تمت إضافة @${username} كقناة اشتراك إجباري!`);
+          } else { await sendMessage(token, chat_id, `❌ قاعدة البيانات غير متاحة`); }
+
+        } else if (convState.step === "min_withdrawal") {
+          const v = Number(text.trim());
+          if (isNaN(v) || v < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً`); }
+          else { await setSetting("min_withdrawal", String(v)); await sendMessage(token, chat_id, `✅ تم تحديث الحد الأدنى للسحب إلى ${v} gram`); }
+
+        } else if (convState.step === "min_deposit") {
+          const v = Number(text.trim());
+          if (isNaN(v) || v < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً`); }
+          else { await setSetting("min_deposit", String(v)); await sendMessage(token, chat_id, `✅ تم تحديث الحد الأدنى للإيداع إلى ${v} gram`); }
+
+        } else if (convState.step === "referral_price") {
+          const v = Number(text.trim());
+          if (isNaN(v) || v < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً`); }
+          else { await setSetting("referral_price", String(v)); await sendMessage(token, chat_id, `✅ تم تحديث سعر الإحالة إلى ${v} coin لكل إحالة`); }
+
+        } else if (convState.step === "miner_edit_price") {
+          const v = Number(text.trim());
+          if (isNaN(v) || v < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً`); }
+          else {
+            const miners = await getMinersConfig();
+            const m = miners.find(x => x.id === convState.minerId);
+            if (m) { m.baseCost = v; await saveMinersConfig(miners); }
+            await sendMessage(token, chat_id, `✅ تم تحديث سعر الجهاز #${convState.minerId} إلى ${v} coin`);
+          }
+
+        } else if (convState.step === "miner_edit_ratio") {
+          const pct = Number(text.trim());
+          if (isNaN(pct) || pct < 0 || pct > 100) { await sendMessage(token, chat_id, `❌ أدخل نسبة بين 0 و 100`); }
+          else {
+            const miners = await getMinersConfig();
+            const m = miners.find(x => x.id === convState.minerId);
+            if (m) { m.dailyPct = pct / 100; await saveMinersConfig(miners); }
+            await sendMessage(token, chat_id, `✅ تم تحديث نسبة الجهاز #${convState.minerId} إلى ${pct}% يومياً`);
+          }
+        }
+      } catch (err) {
+        logger.error({ err }, "Admin state machine error");
+        await sendMessage(token, chat_id, `❌ حدث خطأ، حاول مرة أخرى.`).catch(() => {});
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+  }
 
   try {
     if (text === "/start" || text.startsWith("/start ")) {
@@ -947,9 +1492,6 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
         });
       }
       // Non-admins: silently ignore
-    } else if (isAdmin && text.startsWith("/broadcast ")) {
-      const broadcastMsg = text.replace("/broadcast ", "");
-      await sendMessage(token, chat_id, `📢 <b>Broadcast:</b> ${broadcastMsg}\n\n⚠️ يحتاج قاعدة بيانات لإرسال للكل`);
     }
   } catch (err) {
     logger.error({ err }, "Failed to handle Telegram webhook update");
