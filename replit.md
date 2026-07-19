@@ -1,52 +1,51 @@
 # GramMiner
 
-GramMiner is a Telegram Mini App "tap to mine" game — users tap a coin to earn GMR tokens, upgrade miners, complete tasks, and invite friends for referral rewards.
+A Telegram Mini App for a crypto mining game where users earn "gram" tokens by mining, completing tasks, and referring friends. Supports TON wallet integration and withdrawals.
 
 ## Run & Operate
 
-On Replit, two workflows run the app:
-
-- **Frontend** — `cd artifacts/chatbot && PORT=5000 BASE_PATH=/ API_PORT=8080 pnpm run dev` (serves the webview on port 5000)
-- **API Server** — `cd artifacts/api-server && PORT=8080 pnpm run dev` (backend on port 8080, not directly exposed)
-
-The Vite dev server proxies `/api/*` to the API server on `localhost:8080` (added in `artifacts/chatbot/vite.config.ts` — the original Vercel setup had the frontend and API deployed to separate domains with `VITE_API_URL`, which doesn't apply to Replit's single dev domain).
-
-Other commands:
+- `PORT=8080 pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `PORT=5000 pnpm --filter @workspace/chatbot run dev` — run the frontend (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string (already provisioned via Replit's built-in Postgres)
-- Optional env (for the Telegram bot webhook to work): `TELEGRAM_BOT_TOKEN`, `APP_URL`
+- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `BOT_TOKEN` or `TELEGRAM_BOT_TOKEN` — Telegram bot token
+- Optional env: `ADMIN_ID` — Telegram user ID of the admin
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- Frontend: React + Vite (`artifacts/chatbot`), wouter routing, Tailwind v4, shadcn/ui, framer-motion
-- API: Express 5 (`artifacts/api-server`)
-- DB: PostgreSQL + Drizzle ORM (not yet used by the app — wallet state is currently client-side only)
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- pnpm workspaces, Node.js 20, TypeScript
+- Frontend: React 19 + Vite + Tailwind CSS v4 + shadcn/ui + wouter
+- Backend: Express 5
+- DB: PostgreSQL + Drizzle ORM
+- TON: tonweb, @tonconnect/ui-react
+- Build: esbuild (API), Vite (frontend)
 
 ## Where things live
 
-- `artifacts/chatbot` — the GramMiner Telegram Mini App frontend (Dashboard/mine, Miners, Tasks, Friends, Profile pages)
-- `artifacts/api-server/src/routes/telegram.ts` — Telegram bot webhook + setup endpoints (ported from Vercel serverless functions)
-- `.migration-backup/` — original imported Vercel project, kept for reference only (not run)
+- `artifacts/chatbot/` — React frontend (Telegram Mini App UI)
+- `artifacts/api-server/` — Express API server
+- `lib/db/` — Drizzle ORM schema and DB client
+- `lib/api-client-react/` — Generated API hooks (Orval from OpenAPI spec)
+- `lib/api-spec/` — OpenAPI spec + Orval config
+- `lib/api-zod/` — Generated Zod schemas
 
 ## Architecture decisions
 
-- Ported from a Vercel-deployed project that was already structured as a pnpm workspace with Replit artifact conventions (not a raw Next.js app), so the frontend was copied over largely as-is rather than converted from Next.js.
-- Telegram bot serverless functions (`api/setup.js`, `api/webhook.js`) were converted to Express routes under `/api/telegram/*` in `artifacts/api-server`.
-- Wallet/mining state (`WalletContext`) is currently in-memory client state only — no persistence across reloads yet.
+- API proxied through Vite dev server (`/api` → port 8080) so the frontend never hardcodes the API host
+- TON Connect manifest served dynamically from API (`/api/tonconnect-manifest`) so the iconUrl uses the real origin
+- All localStorage keys include the Telegram user ID to prevent cross-account data bleed
+- DB schema changes use `ADD COLUMN IF NOT EXISTS` lazy migrations at route load time, not at startup
+- Maintenance mode is checked per-request in middleware; admins (matching `ADMIN_ID`) bypass it
 
 ## Product
 
-- Tap-to-mine coin game with a live session earnings counter
-- Holding wallet / pool wallet balances, wallet connect flow (UI only)
-- Miners, Tasks, Friends (referrals), and Profile tabs
-- Telegram bot (`/start`, `/balance`, admin `/admin`, `/stats`, `/broadcast`) that opens the Mini App
+- **Mine**: Tap/claim gram tokens on a cooldown timer
+- **Miners**: Purchase and manage mining hardware NFTs
+- **Tasks**: Complete social/referral tasks to earn gram or coin
+- **Friends**: Referral system — each referral earns coin rewards
+- **Profile**: View stats, language selection, wallet connection
+- **Admin**: Manage users, settings, maintenance mode, withdrawals
 
 ## User preferences
 
@@ -54,8 +53,14 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-- The Telegram bot webhook endpoints require `TELEGRAM_BOT_TOKEN` and `APP_URL` secrets to actually register/respond; without them `/api/telegram/setup` returns 400 and the app UI still works fine (bot features are separate from the Mini App UI).
+- API server requires `PORT` env var — it throws on startup without it
+- Vite dev server uses `PORT` env var (default 3000); set to 5000 for Replit webview
+- Telegram WebApp scroll: use `--app-height` CSS var (set in App.tsx) instead of `100dvh`
+- `@assets` alias resolves to `attached_assets/` on Replit, `src/assets/` elsewhere
 
 ## Pointers
 
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- See `pnpm-workspace.yaml` for catalog versions and workspace package list
+- DB schema: `lib/db/src/schema/index.ts`
+- API routes: `artifacts/api-server/src/routes/`
+- Frontend pages: `artifacts/chatbot/src/pages/`
