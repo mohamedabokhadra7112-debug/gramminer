@@ -99,6 +99,16 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
     // without a full page reload.
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
+        // Recalculate --app-height first so the layout uses the correct
+        // viewport size before the repaint — this fixes the centre panel
+        // staying black while header/footer are visible.
+        const tgWa = window.Telegram?.WebApp;
+        const freshHeight =
+          tgWa?.viewportStableHeight ||
+          tgWa?.viewportHeight       ||
+          window.innerHeight;
+        document.documentElement.style.setProperty('--app-height', `${freshHeight}px`);
+
         // Force a repaint to fix Telegram WebView's frozen-frame bug on Android:
         // the screen stays black/frozen after the app returns from background
         // even though JS is running. Hiding + showing body triggers a reflow
