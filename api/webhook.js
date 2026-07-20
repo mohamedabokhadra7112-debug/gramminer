@@ -1,7 +1,9 @@
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
-const API   = `https://api.telegram.org/bot${TOKEN}`;
-const ADMIN_ID = 868999453;
+const TOKEN    = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
+const API      = `https://api.telegram.org/bot${TOKEN}`;
+const ADMIN_ID = Number(process.env.ADMIN_ID || 0);
 const APP_URL  = 'https://gramminer-api-server-nine.vercel.app';
+
+const { getPool } = require('./admin/_db');
 
 async function sendMessage(chat_id, text, extra = {}) {
   const r = await fetch(`${API}/sendMessage`, {
@@ -10,6 +12,21 @@ async function sendMessage(chat_id, text, extra = {}) {
     body: JSON.stringify({ chat_id, text, parse_mode: 'HTML', ...extra }),
   });
   return r.json().catch(() => null);
+}
+
+/** جيب قيمة key من جدول gm_settings، رجّع null لو مفيش DB أو مفيش القيمة */
+async function getSetting(key) {
+  try {
+    const pool = getPool();
+    if (!pool) return null;
+    const { rows } = await pool.query(
+      'SELECT value FROM gm_settings WHERE key = $1 LIMIT 1',
+      [key]
+    );
+    return rows[0]?.value ?? null;
+  } catch {
+    return null;
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -36,31 +53,48 @@ module.exports = async function handler(req, res) {
     const chat_id = msg.chat.id;
     const text    = msg.text || '';
     const name    = msg.from?.first_name || 'Miner';
-    const isAdmin = msg.from?.id === ADMIN_ID;
+    const isAdmin = ADMIN_ID && msg.from?.id === ADMIN_ID;
 
     if (text === '/start' || text.startsWith('/start ')) {
-      // رسالة ترحيب واحدة مع زر فتح التطبيق مباشرة
-      await sendMessage(
-        chat_id,
-        `⛏️ <b>Welcome to GramMiner, ${name}!</b>\n\n` +
-        `💰 Start mining gram by tapping the coin!\n` +
-        `🏆 Compete with friends and earn rewards!\n\n` +
-        `👇 Press the button below to start:`,
-        {
+      // اقرأ وضع الصيانة ورسالة الترحيب من الداتابيز
+      const [maintenanceMode, maintenanceMsg, welcomeMsg] = await Promise.all([
+        getSetting('maintenance_mode'),
+        getSetting('maintenance_message'),
+        getSetting('welcome_message'),
+      ]);
+
+      const isMaintenance = maintenanceMode === 'true';
+
+      if (isMaintenance && !isAdmin) {
+        // وضع الصيانة — ارسل رسالة الصيانة بدون زر التطبيق
+        await sendMessage(
+          chat_id,
+          maintenanceMsg || '🔧 البوت تحت الصيانة حالياً، سيعود قريباً!'
+        );
+      } else {
+        // وضع عادي — استخدم welcome_message من الداتابيز أو نص افتراضي
+        const welcome = welcomeMsg
+          ? welcomeMsg.replace('{first_name}', name)
+          : `⛏️ <b>Welcome to GramMiner, ${name}!</b>\n\n` +
+            `💰 Start mining gram by tapping the coin!\n` +
+            `🏆 Compete with friends and earn rewards!\n\n` +
+            `👇 Press the button below to start:`;
+
+        await sendMessage(chat_id, welcome, {
           reply_markup: {
             inline_keyboard: [[
               { text: '⛏️ Open GramMiner', web_app: { url: APP_URL } },
             ]],
           },
-        }
-      );
+        });
+      }
 
     } else if (text === '/balance') {
       await sendMessage(
         chat_id,
         `💰 <b>Your GramMiner Balance</b>\n\n` +
         `Open the app to see your full balance!\n` +
-        `⛏️ Keep mining to earn more GMR!`
+        `⛏️ Keep mining to earn more gram!`
       );
 
     } else if (isAdmin && text === '/admin') {
@@ -77,7 +111,7 @@ module.exports = async function handler(req, res) {
       await sendMessage(
         chat_id,
         `📊 <b>GramMiner Stats</b>\n\n` +
-        `🤖 Bot: GramMiner\n💎 Token: GMR\n✅ Status: Running\n👑 Admin: ${ADMIN_ID}`
+        `🤖 Bot: GramMiner\n💎 Token: gram\n✅ Status: Running\n👑 Admin: ${ADMIN_ID}`
       );
 
     } else if (isAdmin && text.startsWith('/broadcast ')) {
