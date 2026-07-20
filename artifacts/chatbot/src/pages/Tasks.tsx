@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { ClipboardList, CheckCircle2, Circle, ExternalLink, Loader2, Radio } from 'lucide-react';
 import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
 import { useWallet } from '@/context/WalletContext';
+import { useCoins } from '@/context/CoinsContext';
 
 const API = import.meta.env.VITE_API_URL ?? '';
 
@@ -32,6 +33,7 @@ const DAILY_MS = 24 * 60 * 60 * 1000;
 
 export default function Tasks() {
   const { holdingWallet } = useWallet();
+  const { addCoins } = useCoins();
   const [tasks, setTasks]     = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
@@ -150,6 +152,7 @@ export default function Tasks() {
 
       if (data.ok) {
         markCompleted(task.id, data.completedAt ?? null, data.isDaily ?? task.isDaily);
+        addCoins(data.reward);
         setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }
@@ -184,6 +187,7 @@ export default function Tasks() {
 
       if (data.ok) {
         markCompleted(task.id, data.completedAt ?? null, data.isDaily ?? task.isDaily);
+        addCoins(data.reward);
         setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }

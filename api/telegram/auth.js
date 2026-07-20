@@ -47,8 +47,10 @@ function verifyInitData(initData) {
   }
 }
 
-/** Upserts user into gm_users; returns their persisted balance. */
+/** Upserts user into gm_users; returns { balance, coins }. */
 async function upsertUser(db, user) {
+  // Ensure coins column exists (lazy migration)
+  await db.query(`ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0`).catch(() => {});
   const { rows } = await db.query(
     `INSERT INTO gm_users (telegram_id, first_name, last_name, username, last_active_at)
      VALUES ($1, $2, $3, $4, NOW())
@@ -57,10 +59,10 @@ async function upsertUser(db, user) {
            last_name     = EXCLUDED.last_name,
            username      = EXCLUDED.username,
            last_active_at = NOW()
-     RETURNING balance`,
+     RETURNING balance, coins`,
     [user.id, user.first_name ?? null, user.last_name ?? null, user.username ?? null],
   );
-  return rows[0]?.balance ?? 0;
+  return { balance: rows[0]?.balance ?? 0, coins: rows[0]?.coins ?? 0 };
 }
 
 module.exports = async function handler(req, res) {
@@ -85,11 +87,12 @@ module.exports = async function handler(req, res) {
 
   // Try to persist / fetch balance from DB; gracefully degrade if DB unavailable
   let balance = 0;
+  let coins   = 0;
   let isAdmin = ADMIN_ID > 0 && user.id === ADMIN_ID;
   try {
     const db = getPool();
     if (db) {
-      balance = await upsertUser(db, user);
+      ({ balance, coins } = await upsertUser(db, user));
       // Also check sub-admins stored in gm_settings (same logic as verifyAdmin in _auth.js)
       if (!isAdmin) {
         const { rows } = await db.query(`SELECT value FROM gm_settings WHERE key = 'sub_admins'`);
@@ -141,6 +144,7 @@ module.exports = async function handler(req, res) {
       last_name:  user.last_name   ?? null,
       username:   user.username    ?? null,
       balance,
+      coins,
     },
     isAdmin,
     notJoinedChannels,
