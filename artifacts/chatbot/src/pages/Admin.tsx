@@ -262,13 +262,13 @@ function TasksSection() {
   const [form, setForm] = useState({ title: '', description: '', reward: '', isDaily: false, channelUsername: '' });
   const [status, setStatus] = useState('');
 
-  const load = useCallback(() => { api<Task[]>('GET', '/admin/general?type=tasks').then(setTasks).catch(() => {}); }, []);
+  const load = useCallback(() => { api<Task[]>('GET', '/admin/tasks').then(setTasks).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
     if (!form.title.trim()) return;
     try {
-      await api('POST', '/admin/general?type=tasks', {
+      await api('POST', '/admin/tasks', {
         title: form.title,
         description: form.description,
         reward: Number(form.reward) || 0,
@@ -280,8 +280,8 @@ function TasksSection() {
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
   };
-  const del = async (id: number) => { await api('DELETE', `/admin/general?type=tasks&id=${id}`); load(); };
-  const toggle = async (t: Task) => { await api('PATCH', `/admin/general?type=tasks&id=${t.id}`, { isHidden: !t.isHidden }); load(); };
+  const del = async (id: number) => { await api('DELETE', `/admin/tasks?id=${id}`); load(); };
+  const toggle = async (t: Task) => { await api('PATCH', `/admin/tasks?id=${t.id}`, { isHidden: !t.isHidden }); load(); };
 
   return (
     <div className="space-y-3">
@@ -733,18 +733,18 @@ function ChannelsSection() {
   const [name, setName]         = useState('');
   const [status, setStatus]     = useState('');
 
-  const load = useCallback(() => { api<Channel[]>('GET', '/admin/general?type=channels').then(setChannels).catch(() => {}); }, []);
+  const load = useCallback(() => { api<Channel[]>('GET', '/admin/channels').then(setChannels).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
     if (!username.trim()) return;
     try {
-      await api('POST', '/admin/general?type=channels', { channelUsername: username.replace(/^@/, ''), channelName: name || username });
+      await api('POST', '/admin/channels', { channelUsername: username.replace(/^@/, ''), channelName: name || username });
       setUsername(''); setName(''); load(); setStatus('✅ أُضيفت');
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
   };
-  const del = async (id: number) => { await api('DELETE', `/admin/general?type=channels&id=${id}`); load(); };
+  const del = async (id: number) => { await api('DELETE', `/admin/channels?id=${id}`); load(); };
 
   return (
     <div className="space-y-3">
@@ -777,7 +777,7 @@ function AdminsSection() {
   const [status, setStatus]     = useState('');
   const [loading, setLoading]   = useState(true);
 
-  const load = useCallback(() => { api<SubAdmin[]>('GET', '/admin/general?type=admins').then(setAdmins).finally(() => setLoading(false)); }, []);
+  const load = useCallback(() => { api<SubAdmin[]>('GET', '/admin/admins').then(setAdmins).finally(() => setLoading(false)); }, []);
   useEffect(() => { load(); }, [load]);
 
   const togglePerm = (key: string) => setPerms(p => p.includes(key) ? p.filter(x => x !== key) : [...p, key]);
@@ -787,7 +787,7 @@ function AdminsSection() {
   const add = async () => {
     if (!tid.trim()) return;
     try {
-      await api('POST', '/admin/general?type=admins', { telegramId: Number(tid), username: uname, permissions: perms });
+      await api('POST', '/admin/admins', { telegramId: Number(tid), username: uname, permissions: perms });
       setTid(''); setUname(''); setPerms([]);
       load(); setStatus('✅ أُضيف');
     } catch { setStatus('❌ فشل'); }
@@ -795,7 +795,7 @@ function AdminsSection() {
   };
 
   const remove = async (telegramId: number) => {
-    await api('DELETE', `/admin/general?type=admins&id=${telegramId}`, undefined);
+    await api('DELETE', `/admin/admins?id=${telegramId}`, undefined);
     load();
   };
 
