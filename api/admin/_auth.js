@@ -65,4 +65,4 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-telegram-initdata');
 }
 
-module.exports = { verifyAdmin, hasPermission, cors };
+module.exports = { verifyTelegramUser, verifyAdmin, hasPermission, cors };
