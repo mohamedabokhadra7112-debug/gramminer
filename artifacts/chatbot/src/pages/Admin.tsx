@@ -110,7 +110,7 @@ function StatusMsg({ msg, isError }: { msg: string; isError?: boolean }) {
 function StatsSection() {
   const [stats, setStats] = useState<Stats|null>(null);
   const [err, setErr] = useState('');
-  useEffect(() => { api<Stats>('GET', '/admin/stats').then(setStats).catch(e => setErr(e.message)); }, []);
+  useEffect(() => { api<Stats>('GET', '/admin/general?type=stats').then(setStats).catch(e => setErr(e.message)); }, []);
 
   if (err) return <div className="text-destructive text-sm">{err}</div>;
   if (!stats) return <div className="text-muted-foreground text-sm">جار التحميل...</div>;
@@ -142,7 +142,7 @@ function BroadcastSection() {
     setLoading(true); setStatus('');
     try {
       const { sent, failed, total } = await api<{ sent: number; failed: number; total: number }>(
-        'POST', '/admin/broadcast', { message: msg }
+        'POST', '/admin/general?type=broadcast', { message: msg }
       );
       setStatus(`✅ أُرسلت لـ ${sent}/${total} مستخدم (فشل: ${failed})`);
       setMsg('');
@@ -176,7 +176,7 @@ function MaintenanceSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings').then(s => {
+    api<Record<string, string>>('GET', '/admin/general?type=settings').then(s => {
       setOn(s['maintenance_mode'] === 'true');
       setMsg(s['maintenance_message'] || '🔧 البوت تحت الصيانة، سيعود قريباً!');
     }).finally(() => setLoading(false));
@@ -185,8 +185,8 @@ function MaintenanceSection() {
   const save = async () => {
     try {
       await Promise.all([
-        api('POST', '/admin/settings', { key: 'maintenance_mode', value: String(on) }),
-        api('POST', '/admin/settings', { key: 'maintenance_message', value: msg }),
+        api('POST', '/admin/general?type=settings', { key: 'maintenance_mode', value: String(on) }),
+        api('POST', '/admin/general?type=settings', { key: 'maintenance_message', value: msg }),
       ]);
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل الحفظ'); }
@@ -226,14 +226,14 @@ function WelcomeSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings')
+    api<Record<string, string>>('GET', '/admin/general?type=settings')
       .then(s => setMsg(s['welcome_message'] || ''))
       .finally(() => setLoading(false));
   }, []);
 
   const save = async () => {
     try {
-      await api('POST', '/admin/settings', { key: 'welcome_message', value: msg });
+      await api('POST', '/admin/general?type=settings', { key: 'welcome_message', value: msg });
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
@@ -262,13 +262,13 @@ function TasksSection() {
   const [form, setForm] = useState({ title: '', description: '', reward: '', isDaily: false, channelUsername: '' });
   const [status, setStatus] = useState('');
 
-  const load = useCallback(() => { api<Task[]>('GET', '/admin/tasks').then(setTasks).catch(() => {}); }, []);
+  const load = useCallback(() => { api<Task[]>('GET', '/admin/general?type=tasks').then(setTasks).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
     if (!form.title.trim()) return;
     try {
-      await api('POST', '/admin/tasks', {
+      await api('POST', '/admin/general?type=tasks', {
         title: form.title,
         description: form.description,
         reward: Number(form.reward) || 0,
@@ -280,8 +280,8 @@ function TasksSection() {
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
   };
-  const del = async (id: number) => { await api('DELETE', `/admin/tasks/${id}`); load(); };
-  const toggle = async (t: Task) => { await api('PATCH', `/admin/tasks/${t.id}`, { isHidden: !t.isHidden }); load(); };
+  const del = async (id: number) => { await api('DELETE', `/admin/general?type=tasks&id=${id}`); load(); };
+  const toggle = async (t: Task) => { await api('PATCH', `/admin/general?type=tasks&id=${t.id}`, { isHidden: !t.isHidden }); load(); };
 
   return (
     <div className="space-y-3">
@@ -329,7 +329,7 @@ function ReferralSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings').then(s => {
+    api<Record<string, string>>('GET', '/admin/general?type=settings').then(s => {
       setPrice(s['referral_price'] || '1');
       setDesc(s['referral_description'] || 'احصل على مكافأة coin مقابل كل صديق تدعوه!');
     }).finally(() => setLoading(false));
@@ -338,8 +338,8 @@ function ReferralSection() {
   const save = async () => {
     try {
       await Promise.all([
-        api('POST', '/admin/settings', { key: 'referral_price', value: price }),
-        api('POST', '/admin/settings', { key: 'referral_description', value: desc }),
+        api('POST', '/admin/general?type=settings', { key: 'referral_price', value: price }),
+        api('POST', '/admin/general?type=settings', { key: 'referral_description', value: desc }),
       ]);
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل'); }
@@ -378,7 +378,7 @@ function UsersSection() {
     if (!query.trim()) return;
     setLoading(true); setStatus(''); setSelected(null);
     try {
-      const users = await api<User[]>('GET', `/admin/users/search?q=${encodeURIComponent(query)}`);
+      const users = await api<User[]>('GET', `/admin/users?action=search&q=${encodeURIComponent(query)}`);
       setResults(users);
       if (!users.length) setStatus('لا نتائج');
     } catch (e: any) { setStatus(`❌ ${e.message}`); }
@@ -390,7 +390,7 @@ function UsersSection() {
       await api('POST', path, body);
       setStatus(`✅ ${successMsg}`);
       // Refresh
-      const users = await api<User[]>('GET', `/admin/users/search?q=${encodeURIComponent(query)}`);
+      const users = await api<User[]>('GET', `/admin/users?action=search&q=${encodeURIComponent(query)}`);
       setResults(users);
       const updated = users.find(u => u.telegramId === selected?.telegramId);
       if (updated) setSelected(updated);
@@ -448,11 +448,11 @@ function UsersSection() {
             <Input value={amount} onChange={e => setAmount(e.target.value)} type="number" placeholder="الكمية" />
             <div className="flex gap-2">
               <Btn variant="success" size="sm" className="flex-1"
-                onClick={() => act(`/admin/users/${u.telegramId}/balance`, { amount: Number(amount) }, 'تم إضافة الرصيد')}>
+                onClick={() => act(`/admin/users?action=balance&id=${u.telegramId}`, { amount: Number(amount) }, 'تم إضافة الرصيد')}>
                 <Coins className="w-3 h-3" />إضافة
               </Btn>
               <Btn variant="danger" size="sm" className="flex-1"
-                onClick={() => act(`/admin/users/${u.telegramId}/balance`, { amount: -Number(amount) }, 'تم خصم الرصيد')}>
+                onClick={() => act(`/admin/users?action=balance&id=${u.telegramId}`, { amount: -Number(amount) }, 'تم خصم الرصيد')}>
                 <Coins className="w-3 h-3" />خصم
               </Btn>
             </div>
@@ -465,7 +465,7 @@ function UsersSection() {
                 <Btn variant="ghost" size="sm"
                   onClick={() => {
                     if (!window.confirm(`سيتم تعيين رصيد ${u.firstName ?? u.telegramId} إلى ${amount} gram. هل أنت متأكد؟`)) return;
-                    act(`/admin/users/${u.telegramId}/balance/set`, { value: Number(amount) }, `تم تعيين الرصيد إلى ${amount} gram`);
+                    act(`/admin/users?action=balance_set&id=${u.telegramId}`, { value: Number(amount) }, `تم تعيين الرصيد إلى ${amount} gram`);
                   }}>
                   <Check className="w-3 h-3" />تعيين
                 </Btn>
@@ -484,7 +484,7 @@ function UsersSection() {
               className="w-full bg-white/5 border border-white/10 rounded-xl p-2 text-white text-sm resize-none focus:outline-none"
             />
             <Btn variant="ghost" size="sm" className="w-full"
-              onClick={() => act(`/admin/users/${u.telegramId}/warn`, { message: warnMsg }, 'تم الإرسال')}>
+              onClick={() => act(`/admin/users?action=warn&id=${u.telegramId}`, { message: warnMsg }, 'تم الإرسال')}>
               <AlertTriangle className="w-3 h-3 text-amber-400" />إرسال التحذير له فقط
             </Btn>
           </div>
@@ -492,18 +492,18 @@ function UsersSection() {
           {/* Quick actions */}
           <div className="flex flex-wrap gap-2">
             <Btn variant={u.isBanned ? 'success' : 'danger'} size="sm"
-              onClick={() => act(`/admin/users/${u.telegramId}/ban`, { ban: !u.isBanned }, u.isBanned ? 'رُفع الحظر' : 'تم الحظر')}>
+              onClick={() => act(`/admin/users?action=ban&id=${u.telegramId}`, { ban: !u.isBanned }, u.isBanned ? 'رُفع الحظر' : 'تم الحظر')}>
               <Ban className="w-3 h-3" />{u.isBanned ? 'رفع الحظر' : 'حظر المستخدم'}
             </Btn>
             <Btn variant={u.restrictWithdrawal ? 'success' : 'ghost'} size="sm"
-              onClick={() => act(`/admin/users/${u.telegramId}/restrict`, { restrict: !u.restrictWithdrawal }, u.restrictWithdrawal ? 'رُفع تقييد السحب' : 'تم تقييد السحب')}>
+              onClick={() => act(`/admin/users?action=restrict&id=${u.telegramId}`, { restrict: !u.restrictWithdrawal }, u.restrictWithdrawal ? 'رُفع تقييد السحب' : 'تم تقييد السحب')}>
               <ArrowDownUp className="w-3 h-3" />{u.restrictWithdrawal ? 'رفع تقييد السحب' : 'تقييد السحب'}
             </Btn>
             <Btn variant="danger" size="sm"
               onClick={async () => {
                 if (!window.confirm(`هل أنت متأكد من مسح حساب ${u.firstName ?? u.telegramId} نهائياً؟`)) return;
                 try {
-                  await api('DELETE', `/admin/users/${u.telegramId}`, undefined);
+                  await api('DELETE', `/admin/users?id=${u.telegramId}`, undefined);
                   setStatus('✅ تم مسح الحساب');
                   setSelected(null);
                   setResults(prev => prev.filter(r => r.telegramId !== u.telegramId));
@@ -528,12 +528,12 @@ function MinersSection() {
   const [newMiner, setNewMiner] = useState({ name: '', baseCost: '', dailyPct: '', description: '' });
 
   useEffect(() => {
-    api<Miner[]>('GET', '/admin/miners').then(setMiners).finally(() => setLoading(false));
+    api<Miner[]>('GET', '/admin/general?type=miners').then(setMiners).finally(() => setLoading(false));
   }, []);
 
   const save = async (updated: Miner[]) => {
     try {
-      await api('POST', '/admin/miners', { miners: updated });
+      await api('POST', '/admin/general?type=miners', { miners: updated });
       setMiners(updated);
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل'); }
@@ -602,14 +602,14 @@ function WithdrawalsSection() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api<Withdrawal[]>('GET', '/admin/withdrawals').then(setItems).catch(() => {}).finally(() => setLoading(false));
+    api<Withdrawal[]>('GET', '/admin/general?type=withdrawals').then(setItems).catch(() => {}).finally(() => setLoading(false));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const approve = async (id: number) => {
     setStatus('⏳ جار الإرسال...');
     try {
-      await api('POST', `/admin/withdrawals/${id}/approve`, {});
+      await api('POST', `/admin/general?type=withdrawals&action=approve&id=${id}`, {});
       setStatus('✅ تمت الموافقة وتم الإرسال');
       load();
     } catch (e: any) { setStatus(`❌ ${e.message}`); }
@@ -618,7 +618,7 @@ function WithdrawalsSection() {
 
   const reject = async (id: number) => {
     try {
-      await api('POST', `/admin/withdrawals/${id}/reject`, { reason: rejectReason || 'تم الرفض من قبل الإدارة' });
+      await api('POST', `/admin/general?type=withdrawals&action=reject&id=${id}`, { reason: rejectReason || 'تم الرفض من قبل الإدارة' });
       setStatus('✅ تم الرفض وإعادة الرصيد');
       setRejectId(null); setRejectReason('');
       load();
@@ -684,7 +684,7 @@ function LimitsSection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<Record<string, string>>('GET', '/admin/settings').then(s => {
+    api<Record<string, string>>('GET', '/admin/general?type=settings').then(s => {
       setVals({ minWithdraw: s['min_withdrawal'] || '0.1', maxWithdraw: s['max_withdrawal'] || '1000', minDeposit: s['min_deposit'] || '0.1', maxDeposit: s['max_deposit'] || '10000' });
     }).finally(() => setLoading(false));
   }, []);
@@ -692,10 +692,10 @@ function LimitsSection() {
   const save = async () => {
     try {
       await Promise.all([
-        api('POST', '/admin/settings', { key: 'min_withdrawal', value: vals.minWithdraw }),
-        api('POST', '/admin/settings', { key: 'max_withdrawal', value: vals.maxWithdraw }),
-        api('POST', '/admin/settings', { key: 'min_deposit',    value: vals.minDeposit }),
-        api('POST', '/admin/settings', { key: 'max_deposit',    value: vals.maxDeposit }),
+        api('POST', '/admin/general?type=settings', { key: 'min_withdrawal', value: vals.minWithdraw }),
+        api('POST', '/admin/general?type=settings', { key: 'max_withdrawal', value: vals.maxWithdraw }),
+        api('POST', '/admin/general?type=settings', { key: 'min_deposit',    value: vals.minDeposit }),
+        api('POST', '/admin/general?type=settings', { key: 'max_deposit',    value: vals.maxDeposit }),
       ]);
       setStatus('✅ تم الحفظ');
     } catch { setStatus('❌ فشل'); }
@@ -733,18 +733,18 @@ function ChannelsSection() {
   const [name, setName]         = useState('');
   const [status, setStatus]     = useState('');
 
-  const load = useCallback(() => { api<Channel[]>('GET', '/admin/channels').then(setChannels).catch(() => {}); }, []);
+  const load = useCallback(() => { api<Channel[]>('GET', '/admin/general?type=channels').then(setChannels).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
     if (!username.trim()) return;
     try {
-      await api('POST', '/admin/channels', { channelUsername: username.replace(/^@/, ''), channelName: name || username });
+      await api('POST', '/admin/general?type=channels', { channelUsername: username.replace(/^@/, ''), channelName: name || username });
       setUsername(''); setName(''); load(); setStatus('✅ أُضيفت');
     } catch { setStatus('❌ فشل'); }
     setTimeout(() => setStatus(''), 2000);
   };
-  const del = async (id: number) => { await api('DELETE', `/admin/channels/${id}`); load(); };
+  const del = async (id: number) => { await api('DELETE', `/admin/general?type=channels&id=${id}`); load(); };
 
   return (
     <div className="space-y-3">
@@ -777,7 +777,7 @@ function AdminsSection() {
   const [status, setStatus]     = useState('');
   const [loading, setLoading]   = useState(true);
 
-  const load = useCallback(() => { api<SubAdmin[]>('GET', '/admin/admins').then(setAdmins).finally(() => setLoading(false)); }, []);
+  const load = useCallback(() => { api<SubAdmin[]>('GET', '/admin/general?type=admins').then(setAdmins).finally(() => setLoading(false)); }, []);
   useEffect(() => { load(); }, [load]);
 
   const togglePerm = (key: string) => setPerms(p => p.includes(key) ? p.filter(x => x !== key) : [...p, key]);
@@ -787,7 +787,7 @@ function AdminsSection() {
   const add = async () => {
     if (!tid.trim()) return;
     try {
-      await api('POST', '/admin/admins', { telegramId: Number(tid), username: uname, permissions: perms });
+      await api('POST', '/admin/general?type=admins', { telegramId: Number(tid), username: uname, permissions: perms });
       setTid(''); setUname(''); setPerms([]);
       load(); setStatus('✅ أُضيف');
     } catch { setStatus('❌ فشل'); }
@@ -795,7 +795,7 @@ function AdminsSection() {
   };
 
   const remove = async (telegramId: number) => {
-    await api('DELETE', `/admin/admins/${telegramId}`, undefined);
+    await api('DELETE', `/admin/general?type=admins&id=${telegramId}`, undefined);
     load();
   };
 
