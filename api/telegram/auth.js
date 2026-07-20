@@ -101,6 +101,39 @@ module.exports = async function handler(req, res) {
     console.error('DB upsert failed:', err?.message);
   }
 
+  // ── Mandatory channel subscription check (skipped for admins) ────────────
+  let notJoinedChannels = [];
+  if (!isAdmin) {
+    try {
+      const db = getPool();
+      if (db) {
+        const { rows: channels } = await db.query(
+          `SELECT channel_username, channel_name FROM gm_channels ORDER BY created_at`
+        );
+        if (channels.length > 0) {
+          const checks = await Promise.all(
+            channels.map(async ch => {
+              try {
+                const r = await fetch(
+                  `https://api.telegram.org/bot${TOKEN}/getChatMember?chat_id=@${ch.channel_username}&user_id=${user.id}`
+                );
+                const data = await r.json();
+                const st = data?.result?.status;
+                if (st === 'left' || st === 'kicked') {
+                  return { channelUsername: ch.channel_username, channelName: ch.channel_name };
+                }
+              } catch { /* Telegram API unreachable — treat as joined */ }
+              return null;
+            })
+          );
+          notJoinedChannels = checks.filter(Boolean);
+        }
+      }
+    } catch (err) {
+      console.error('Channel membership check failed:', err?.message);
+    }
+  }
+
   return res.status(200).json({
     user: {
       id:         user.id,
@@ -110,5 +143,6 @@ module.exports = async function handler(req, res) {
       balance,
     },
     isAdmin,
+    notJoinedChannels,
   });
 };

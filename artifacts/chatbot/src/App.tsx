@@ -68,8 +68,85 @@ function LoadingScreen() {
   );
 }
 
+function ChannelGate() {
+  const { notJoinedChannels, recheckChannels } = useTelegramUser();
+  const [checking, setChecking] = React.useState(false);
+
+  const handleRecheck = async () => {
+    setChecking(true);
+    try { await recheckChannels(); } finally { setChecking(false); }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full w-full px-6 gap-5"
+      style={{ backgroundColor: '#0a0b14' }}>
+      {/* Icon */}
+      <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center">
+        <svg className="w-8 h-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185z" />
+        </svg>
+      </div>
+
+      {/* Title */}
+      <div className="text-center">
+        <h2 className="text-white font-black text-xl mb-1">لازم تشترك في القنوات دي أولاً</h2>
+        <p className="text-muted-foreground text-sm">اشترك في كل القنوات اللي تحت عشان تقدر تستخدم التطبيق</p>
+      </div>
+
+      {/* Channel list */}
+      <div className="w-full space-y-2.5">
+        {notJoinedChannels.map(ch => (
+          <a
+            key={ch.channelUsername}
+            href={`https://t.me/${ch.channelUsername}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 hover:border-primary/40 hover:bg-white/10 transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.88 13.47l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.834.95-.001 0-.001.001-.002.001l.466-.002z"/>
+                </svg>
+              </div>
+              <span className="text-white font-bold text-sm">
+                {ch.channelName || `@${ch.channelUsername}`}
+              </span>
+            </div>
+            <span className="text-primary text-xs font-bold group-hover:translate-x-0.5 transition-transform">
+              اشترك ←
+            </span>
+          </a>
+        ))}
+      </div>
+
+      {/* Recheck button */}
+      <button
+        onClick={handleRecheck}
+        disabled={checking}
+        className="w-full bg-primary text-black font-black rounded-2xl py-3.5 text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-opacity"
+      >
+        {checking ? (
+          <>
+            <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+            جار التحقق...
+          </>
+        ) : (
+          <>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            تحقق مرة أخرى
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 function Router() {
-  const { isAdmin, isLoading } = useTelegramUser();
+  const { isAdmin, isLoading, notJoinedChannels } = useTelegramUser();
 
   return (
     <div
@@ -82,6 +159,8 @@ function Router() {
     >
       {isLoading ? (
         <LoadingScreen />
+      ) : notJoinedChannels.length > 0 ? (
+        <ChannelGate />
       ) : (
         <>
           <div
