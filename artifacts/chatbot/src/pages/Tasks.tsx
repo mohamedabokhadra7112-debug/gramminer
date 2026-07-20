@@ -14,23 +14,53 @@ interface Task {
   channelUsername?: string | null;
 }
 
+interface CompletionInfo {
+  completedAt: Date | null; // null = no timestamp (e.g. DB unavailable)
+  isDaily: boolean;
+}
+
+/** Format milliseconds as HH:MM:SS */
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+const DAILY_MS = 24 * 60 * 60 * 1000;
+
 export default function Tasks() {
   const { holdingWallet } = useWallet();
   const [tasks, setTasks]     = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
-  const [done, setDone]       = useState<Set<number>>(new Set());
+
+  // Map of taskId → completion info (present = completed at least once)
+  const [completions, setCompletions] = useState<Map<number, CompletionInfo>>(new Map());
+
   const [completing, setCompleting] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ id: number; msg: string; ok: boolean } | null>(null);
 
-  // Load completed tasks from server
+  // Live clock for countdown timers — updates every second only when daily tasks exist
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ── Load completed tasks from server ──────────────────────────────────────
   const loadCompleted = useCallback(async () => {
     const initData = getInitData();
     if (!initData) {
-      // Fallback to localStorage
       try {
         const saved = localStorage.getItem('gm_tasks_done');
-        if (saved) setDone(new Set(JSON.parse(saved)));
+        if (saved) {
+          const ids: number[] = JSON.parse(saved);
+          const m = new Map<number, CompletionInfo>();
+          ids.forEach(id => m.set(id, { completedAt: null, isDaily: false }));
+          setCompletions(m);
+        }
       } catch {}
       return;
     }
@@ -39,14 +69,32 @@ export default function Tasks() {
         headers: { 'x-init-data': initData },
       });
       if (res.ok) {
-        const ids = await res.json() as number[];
-        setDone(new Set(ids));
+        const data = await res.json();
+        const m = new Map<number, CompletionInfo>();
+        if (Array.isArray(data)) {
+          data.forEach((item: any) => {
+            // Support both old format (plain number) and new format (object)
+            if (typeof item === 'number') {
+              m.set(item, { completedAt: null, isDaily: false });
+            } else {
+              m.set(item.taskId, {
+                completedAt: item.completedAt ? new Date(item.completedAt) : null,
+                isDaily:     Boolean(item.isDaily),
+              });
+            }
+          });
+        }
+        setCompletions(m);
       }
     } catch {
-      // Fallback to localStorage
       try {
         const saved = localStorage.getItem('gm_tasks_done');
-        if (saved) setDone(new Set(JSON.parse(saved)));
+        if (saved) {
+          const ids: number[] = JSON.parse(saved);
+          const m = new Map<number, CompletionInfo>();
+          ids.forEach(id => m.set(id, { completedAt: null, isDaily: false }));
+          setCompletions(m);
+        }
       } catch {}
     }
   }, []);
@@ -64,23 +112,30 @@ export default function Tasks() {
     loadCompleted();
   }, [loadCompleted]);
 
+  // ── Record a successful completion in state ────────────────────────────────
+  const markCompleted = (taskId: number, completedAt: string | Date | null, isDaily: boolean) => {
+    setCompletions(prev => {
+      const next = new Map(prev);
+      next.set(taskId, {
+        completedAt: completedAt ? new Date(completedAt as string) : new Date(),
+        isDaily,
+      });
+      return next;
+    });
+  };
+
+  // ── Handle task completion attempt ────────────────────────────────────────
   const handleComplete = async (task: Task) => {
     const initData = getInitData();
     if (!initData) {
-      // No Telegram context — just mark locally
-      setDone(prev => {
-        const next = new Set(prev);
-        next.add(task.id);
-        localStorage.setItem('gm_tasks_done', JSON.stringify([...next]));
-        return next;
-      });
+      markCompleted(task.id, null, task.isDaily);
+      localStorage.setItem('gm_tasks_done', JSON.stringify([...completions.keys(), task.id]));
       return;
     }
 
-    // If channel task, open the channel first then try to complete
+    // Channel tasks: open channel first, prompt user to come back and verify
     if (task.channelUsername) {
       (window.Telegram?.WebApp as any)?.openLink?.(`https://t.me/${task.channelUsername}`);
-      // Give user a moment to join, then attempt completion
       setFeedback({ id: task.id, msg: '⏳ انضم للقناة ثم اضغط مجدداً للتحقق', ok: true });
       setTimeout(() => setFeedback(null), 4000);
       return;
@@ -88,18 +143,22 @@ export default function Tasks() {
 
     setCompleting(task.id);
     try {
-      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks?action=complete', { taskId: task.id });
+      const data = await telegramApiPost<{
+        ok: boolean; reward: number; coins: number;
+        completedAt?: string; isDaily?: boolean;
+      }>('/tasks?action=complete', { taskId: task.id });
+
       if (data.ok) {
-        setDone(prev => new Set(prev).add(task.id));
+        markCompleted(task.id, data.completedAt ?? null, data.isDaily ?? task.isDaily);
         setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('already_completed')) {
-        setDone(prev => new Set(prev).add(task.id));
+        // Treat as completed — completedAt unknown from this path, use now as fallback
+        markCompleted(task.id, new Date(), task.isDaily);
       } else if (msg.includes('not_member')) {
-        // Channel task but not a member yet
         if (task.channelUsername) {
           (window.Telegram?.WebApp as any)?.openLink?.(`https://t.me/${task.channelUsername}`);
         }
@@ -114,13 +173,17 @@ export default function Tasks() {
     }
   };
 
+  // ── Handle channel membership verification (second press) ─────────────────
   const handleChannelVerify = async (task: Task) => {
-    // Second press on a channel task — try to verify membership
     setCompleting(task.id);
     try {
-      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks?action=complete', { taskId: task.id });
+      const data = await telegramApiPost<{
+        ok: boolean; reward: number; coins: number;
+        completedAt?: string; isDaily?: boolean;
+      }>('/tasks?action=complete', { taskId: task.id });
+
       if (data.ok) {
-        setDone(prev => new Set(prev).add(task.id));
+        markCompleted(task.id, data.completedAt ?? null, data.isDaily ?? task.isDaily);
         setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
         setTimeout(() => setFeedback(null), 3000);
       }
@@ -129,7 +192,7 @@ export default function Tasks() {
       if (msg.includes('not_member')) {
         setFeedback({ id: task.id, msg: '❌ لم يتم التحقق من العضوية. انضم ثم حاول مرة أخرى.', ok: false });
       } else if (msg.includes('already_completed')) {
-        setDone(prev => new Set(prev).add(task.id));
+        markCompleted(task.id, new Date(), task.isDaily);
       } else {
         setFeedback({ id: task.id, msg: `❌ ${msg}`, ok: false });
       }
@@ -172,44 +235,66 @@ export default function Tasks() {
         )}
 
         {!loading && tasks.map(task => {
-          const completed = done.has(task.id);
-          const isChannel = Boolean(task.channelUsername);
+          const completion  = completions.get(task.id);
           const isCompleting = completing === task.id;
           const fb = feedback?.id === task.id ? feedback : null;
+          const isChannel = Boolean(task.channelUsername);
+
+          // Countdown logic for daily tasks
+          const msLeft = (task.isDaily && completion?.completedAt)
+            ? completion.completedAt.getTime() + DAILY_MS - now
+            : 0;
+          const isCountingDown = task.isDaily && completion !== undefined && msLeft > 0;
+
+          // A daily task is "blocked" (show countdown) while msLeft > 0
+          // A non-daily task is "done" permanently once completion exists
+          const isDone = completion !== undefined && !isCountingDown;
 
           return (
             <div
               key={task.id}
               className={`backdrop-blur-sm border rounded-2xl p-4 ${
-                completed ? 'bg-success/5 border-success/20' : 'bg-secondary/60 border-white/5'
+                isDone
+                  ? 'bg-success/5 border-success/20'
+                  : isCountingDown
+                    ? 'bg-yellow-500/5 border-yellow-500/20'
+                    : 'bg-secondary/60 border-white/5'
               }`}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                  {completed
+                  {/* Icon */}
+                  {isDone
                     ? <CheckCircle2 className="w-6 h-6 text-success flex-shrink-0" />
                     : isChannel
                       ? <Radio className="w-6 h-6 text-primary flex-shrink-0" />
                       : <Circle className="w-6 h-6 text-muted-foreground flex-shrink-0" />}
+
                   <div className="min-w-0">
-                    <h3 className={`font-bold text-sm truncate ${completed ? 'text-muted-foreground line-through' : 'text-white'}`}>
+                    <h3 className={`font-bold text-sm truncate ${isDone ? 'text-muted-foreground line-through' : 'text-white'}`}>
                       {task.title}
                     </h3>
                     {task.description && (
                       <p className="text-xs text-muted-foreground/70 mt-0.5 truncate">{task.description}</p>
                     )}
-                    {isChannel && task.channelUsername && !completed && (
+                    {isChannel && task.channelUsername && !isDone && !isCountingDown && (
                       <p className="text-xs text-primary/70 mt-0.5">📢 @{task.channelUsername}</p>
                     )}
-                    <div className={`text-xs font-black mt-0.5 ${completed ? 'text-muted-foreground' : 'text-primary'}`}>
+                    <div className={`text-xs font-black mt-0.5 ${isDone ? 'text-muted-foreground' : 'text-primary'}`}>
                       +{task.reward} coin{task.isDaily ? ' · يومية' : ''}
                     </div>
                   </div>
                 </div>
 
-                {!completed && (
-                  <div className="flex flex-col gap-1 flex-shrink-0">
-                    {isChannel ? (
+                {/* Right-side action area */}
+                <div className="flex flex-col gap-1 flex-shrink-0 items-end">
+                  {isCountingDown ? (
+                    /* 24h countdown — task available again when this reaches 00:00:00 */
+                    <div className="px-3 py-1.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-mono font-bold">
+                      ⏱ {formatCountdown(msLeft)}
+                    </div>
+                  ) : !isDone ? (
+                    isChannel ? (
                       <>
                         <button
                           onClick={() => handleComplete(task)}
@@ -235,9 +320,9 @@ export default function Tasks() {
                         {isCompleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
                         انجاز
                       </button>
-                    )}
-                  </div>
-                )}
+                    )
+                  ) : null /* isDone: no button */}
+                </div>
               </div>
 
               {/* Feedback */}

@@ -1,7 +1,7 @@
 // Tasks endpoint
 // GET /api/tasks                          → all non-hidden tasks (no auth)
-// GET /api/tasks?action=completed         → task_id array for current user
-// POST /api/tasks?action=complete         → record completion + credit coins
+// GET /api/tasks?action=completed         → completion records for current user
+// POST /api/tasks?action=complete         → record completion + credit coins (NOT balance)
 const { verifyTelegramUser, cors } = require('./admin/_auth');
 const { getPool } = require('./admin/_db');
 
@@ -14,8 +14,9 @@ module.exports = async function handler(req, res) {
   const { action } = req.query;
 
   // ── GET /api/tasks?action=completed ─────────────────────────────────────────
+  // Returns: { taskId, completedAt, isDaily }[]
+  // Daily tasks include completedAt so the frontend can show a 24h countdown.
   if (action === 'completed' && req.method === 'GET') {
-    // Tasks.tsx fetches with header 'x-init-data'
     const initData = req.headers['x-init-data'];
     if (!initData || !TOKEN) return res.json([]);
 
@@ -27,10 +28,17 @@ module.exports = async function handler(req, res) {
 
     try {
       const { rows } = await db.query(
-        `SELECT task_id FROM gm_task_completions WHERE telegram_id = $1`,
+        `SELECT tc.task_id, tc.completed_at, t.is_daily
+         FROM gm_task_completions tc
+         JOIN gm_tasks t ON t.id = tc.task_id
+         WHERE tc.telegram_id = $1`,
         [user.id]
       );
-      return res.json(rows.map(r => r.task_id));
+      return res.json(rows.map(r => ({
+        taskId:      r.task_id,
+        completedAt: r.completed_at,   // ISO timestamp string
+        isDaily:     r.is_daily,
+      })));
     } catch {
       return res.json([]);
     }
@@ -67,7 +75,7 @@ module.exports = async function handler(req, res) {
 
       // ── Load task ──────────────────────────────────────────────────────────
       const { rows: taskRows } = await db.query(
-        `SELECT id, title, reward, is_hidden, channel_username FROM gm_tasks WHERE id = $1`,
+        `SELECT id, title, reward, is_hidden, is_daily, channel_username FROM gm_tasks WHERE id = $1`,
         [Number(taskId)]
       );
       if (!taskRows.length || taskRows[0].is_hidden) {
@@ -77,11 +85,27 @@ module.exports = async function handler(req, res) {
 
       // ── Already completed? ─────────────────────────────────────────────────
       const { rows: existing } = await db.query(
-        `SELECT id FROM gm_task_completions WHERE telegram_id = $1 AND task_id = $2`,
+        `SELECT id, completed_at FROM gm_task_completions WHERE telegram_id = $1 AND task_id = $2`,
         [user.id, task.id]
       );
+
       if (existing.length > 0) {
-        return res.status(409).json({ error: 'already_completed' });
+        if (!task.is_daily) {
+          // Non-daily: never allow re-completion
+          return res.status(409).json({ error: 'already_completed' });
+        }
+        // Daily: allow re-completion only after 24 hours
+        const lastDone = new Date(existing[0].completed_at);
+        const hoursSince = (Date.now() - lastDone.getTime()) / (1000 * 60 * 60);
+        if (hoursSince < 24) {
+          const nextAvailableAt = new Date(lastDone.getTime() + 24 * 60 * 60 * 1000).toISOString();
+          return res.status(409).json({
+            error: 'already_completed',
+            completedAt: existing[0].completed_at,
+            nextAvailableAt,
+          });
+        }
+        // 24h passed — fall through to re-record via ON CONFLICT DO UPDATE below
       }
 
       // ── Channel membership check ───────────────────────────────────────────
@@ -97,17 +121,35 @@ module.exports = async function handler(req, res) {
             return res.status(403).json({ error: 'not_member', channelUsername: task.channel_username });
           }
         } catch {
-          // If Telegram API is unreachable, allow through to avoid blocking users
+          // Telegram API unreachable — allow through to avoid blocking users
         }
       }
 
       // ── Record completion ──────────────────────────────────────────────────
-      await db.query(
-        `INSERT INTO gm_task_completions (telegram_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [user.id, task.id]
-      );
+      // Daily tasks: upsert (reset completed_at so the 24h window restarts).
+      // Non-daily tasks: plain insert; ON CONFLICT DO NOTHING is a safety net only.
+      let completedAt;
+      if (task.is_daily) {
+        const { rows: upserted } = await db.query(
+          `INSERT INTO gm_task_completions (telegram_id, task_id)
+           VALUES ($1, $2)
+           ON CONFLICT (telegram_id, task_id) DO UPDATE SET completed_at = NOW()
+           RETURNING completed_at`,
+          [user.id, task.id]
+        );
+        completedAt = upserted[0]?.completed_at;
+      } else {
+        const { rows: inserted } = await db.query(
+          `INSERT INTO gm_task_completions (telegram_id, task_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING
+           RETURNING completed_at`,
+          [user.id, task.id]
+        );
+        completedAt = inserted[0]?.completed_at;
+      }
 
-      // ── Credit reward as coins ─────────────────────────────────────────────
+      // ── Credit reward as coins (NOT balance — balance is gram only) ────────
       const reward = Math.round(Number(task.reward) || 0);
       const { rows: updated } = await db.query(
         `UPDATE gm_users
@@ -117,7 +159,13 @@ module.exports = async function handler(req, res) {
         [reward, user.id]
       );
 
-      return res.json({ ok: true, reward, coins: updated[0]?.coins ?? 0 });
+      return res.json({
+        ok: true,
+        reward,
+        coins:       updated[0]?.coins ?? 0,
+        completedAt, // ISO string — frontend uses this to start the 24h countdown
+        isDaily:     task.is_daily,
+      });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -137,11 +185,11 @@ module.exports = async function handler(req, res) {
        ORDER BY created_at ASC`
     );
     res.json(rows.map(r => ({
-      id: r.id,
-      title: r.title,
+      id:          r.id,
+      title:       r.title,
       description: r.description,
-      reward: Number(r.reward),
-      isDaily: r.is_daily,
+      reward:      Number(r.reward),
+      isDaily:     r.is_daily,
     })));
   } catch (e) {
     res.status(500).json({ error: e.message });
