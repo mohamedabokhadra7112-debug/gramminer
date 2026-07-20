@@ -35,7 +35,7 @@ export default function Tasks() {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/tasks/completed`, {
+      const res = await fetch(`${API_BASE}/api/tasks?action=completed`, {
         headers: { 'x-init-data': initData },
       });
       if (res.ok) {
@@ -88,7 +88,7 @@ export default function Tasks() {
 
     setCompleting(task.id);
     try {
-      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks/complete', { taskId: task.id });
+      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks?action=complete', { taskId: task.id });
       if (data.ok) {
         setDone(prev => new Set(prev).add(task.id));
         setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
@@ -118,7 +118,7 @@ export default function Tasks() {
     // Second press on a channel task — try to verify membership
     setCompleting(task.id);
     try {
-      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks/complete', { taskId: task.id });
+      const data = await telegramApiPost<{ ok: boolean; reward: number; coins: number }>('/tasks?action=complete', { taskId: task.id });
       if (data.ok) {
         setDone(prev => new Set(prev).add(task.id));
         setFeedback({ id: task.id, msg: `✅ +${data.reward} coin`, ok: true });
