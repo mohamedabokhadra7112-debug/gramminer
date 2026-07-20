@@ -97,31 +97,20 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
     // Telegram may keep the WebView alive in the background; when the user
     // re-opens the app we need to refresh the server balance & channel status
     // without a full page reload.
+    let hiddenAt: number | null = null;
+
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        // Recalculate --app-height first so the layout uses the correct
-        // viewport size before the repaint — this fixes the centre panel
-        // staying black while header/footer are visible.
-        const tgWa = window.Telegram?.WebApp;
-        const freshHeight =
-          tgWa?.viewportStableHeight ||
-          tgWa?.viewportHeight       ||
-          window.innerHeight;
-        document.documentElement.style.setProperty('--app-height', `${freshHeight}px`);
-
-        // Force a repaint to fix Telegram WebView's frozen-frame bug on Android:
-        // the screen stays black/frozen after the app returns from background
-        // even though JS is running. Hiding + showing body triggers a reflow
-        // that breaks the frozen frame.
-        document.body.style.display = 'none';
-        void document.body.offsetHeight; // flush layout — do not remove
-        document.body.style.display = '';
-
-        // Re-expand the WebView in case Telegram collapsed it while backgrounded,
-        // and dispatch resize so any layout-sensitive components recalculate.
-        window.Telegram?.WebApp?.expand?.();
-        window.dispatchEvent(new Event('resize'));
-
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+      } else if (document.visibilityState === 'visible') {
+        const wasHiddenFor = hiddenAt ? Date.now() - hiddenAt : 0;
+        hiddenAt = null;
+        // لو كان مخفي لأكتر من 3 ثواني، اعمل reload كامل عشان نضمن مفيش فريم متجمد
+        if (wasHiddenFor > 3000) {
+          window.location.reload();
+          return;
+        }
+        // رجوع سريع (أقل من 3 ثواني) - كفاية نحدث البيانات بس من غير reload
         const currentInitData = window.Telegram?.WebApp?.initData;
         if (currentInitData) {
           doAuth(currentInitData).catch(() => {});
