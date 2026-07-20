@@ -99,6 +99,19 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
     // without a full page reload.
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
+        // Force a repaint to fix Telegram WebView's frozen-frame bug on Android:
+        // the screen stays black/frozen after the app returns from background
+        // even though JS is running. Hiding + showing body triggers a reflow
+        // that breaks the frozen frame.
+        document.body.style.display = 'none';
+        void document.body.offsetHeight; // flush layout — do not remove
+        document.body.style.display = '';
+
+        // Re-expand the WebView in case Telegram collapsed it while backgrounded,
+        // and dispatch resize so any layout-sensitive components recalculate.
+        window.Telegram?.WebApp?.expand?.();
+        window.dispatchEvent(new Event('resize'));
+
         const currentInitData = window.Telegram?.WebApp?.initData;
         if (currentInitData) {
           doAuth(currentInitData).catch(() => {});
