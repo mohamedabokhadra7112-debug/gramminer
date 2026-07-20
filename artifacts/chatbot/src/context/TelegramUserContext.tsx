@@ -92,6 +92,24 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
         clearTimeout(safetyTimer);
         setIsLoading(false);
       });
+
+    // ── Step 3: re-auth whenever the mini app comes back to the foreground ───
+    // Telegram may keep the WebView alive in the background; when the user
+    // re-opens the app we need to refresh the server balance & channel status
+    // without a full page reload.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const currentInitData = window.Telegram?.WebApp?.initData;
+        if (currentInitData) {
+          doAuth(currentInitData).catch(() => {});
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [doAuth]);
 
   /** Re-calls auth endpoint; used by the channel gate "Check again" button. */

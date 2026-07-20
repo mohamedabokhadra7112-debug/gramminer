@@ -48,11 +48,12 @@ export function CoinsProvider({ children }: { children: React.ReactNode }) {
   const coinsRef = useRef(coins);
   useEffect(() => { coinsRef.current = coins; }, [coins]);
 
-  // Seed from server once auth is verified — take the max of local & server
-  // so any offline purchases (localStorage) aren't overwritten by a stale server value.
+  // Sync coins from server whenever auth resolves (on mount and on every
+  // visibility-change re-auth so coins stay fresh after the app is re-opened).
+  // Take the max of local & server so any optimistic local deductions (miner
+  // purchases that haven't confirmed server-side yet) aren't overwritten.
   const seededFromServer = useRef(false);
   useEffect(() => {
-    if (seededFromServer.current) return;
     if (!isVerified || typeof user?.coins !== 'number') return;
     seededFromServer.current = true;
     setCoins(Math.max(loadStoredCoins(), user.coins));

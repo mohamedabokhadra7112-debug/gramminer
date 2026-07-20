@@ -99,7 +99,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setWalletAddressState(addr);
   }, []);
 
-  // Seed from server balance once verified.
+  // Sync with server balance whenever auth resolves (on mount and on every
+  // visibility-change re-auth so the balance stays fresh after the app is
+  // re-opened from the background).
   // The server is always the authoritative source of truth.
   // We only trust localStorage over the server if the difference is small
   // (≤ MAX_UNSYNCED_GRAM) — that margin represents earnings saved locally
@@ -110,7 +112,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const seededFromServer = useRef(false);
   const MAX_UNSYNCED_GRAM = 10; // max plausible unsynced offline earnings
   useEffect(() => {
-    if (seededFromServer.current) return;
     if (!isVerified) return;
     // typeof NaN === 'number' is TRUE — we must use isFinite, not typeof.
     const serverBalance = Number(user?.balance);

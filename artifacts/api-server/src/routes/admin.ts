@@ -14,7 +14,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq, count, sql } from "drizzle-orm";
+import { eq, count, sql, or, ilike } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { getDb } from "../lib/db";
 import { logger } from "../lib/logger";
@@ -342,13 +342,26 @@ router.all("/admin/users", async (req, res) => {
     // ── search ────────────────────────────────────────────────────────────────
     if (method === "GET" && action === "search") {
       if (!db) { res.status(503).json({ error: "Database not available" }); return; }
-      const q = req.query.q as string | undefined;
-      if (!q) { res.status(400).json({ error: "q (telegram_id or username) required" }); return; }
+      const q = ((req.query.q as string | undefined) ?? "").trim();
+      if (!q) { res.status(400).json({ error: "q (telegram_id, username, or name) required" }); return; }
       const { usersTable } = await import("@workspace/db");
-      const byId = !isNaN(Number(q));
-      const users = byId
-        ? await db.select().from(usersTable).where(eq(usersTable.telegramId, Number(q))).limit(1)
-        : await db.select().from(usersTable).where(eq(usersTable.username, q.replace(/^@/, ""))).limit(10);
+      // Pure-digit string → Telegram ID lookup (exact)
+      // Anything else   → case-insensitive partial match on username OR first_name
+      const byId = /^\d+$/.test(q);
+      let users;
+      if (byId) {
+        users = await db.select().from(usersTable)
+          .where(eq(usersTable.telegramId, Number(q)))
+          .limit(1);
+      } else {
+        const cleanQ = q.replace(/^@/, "");
+        users = await db.select().from(usersTable)
+          .where(or(
+            ilike(usersTable.username, cleanQ),          // exact username, case-insensitive
+            ilike(usersTable.firstName, `%${cleanQ}%`),  // partial first-name match
+          ))
+          .limit(20);
+      }
       res.json(users);
 
     // ── ban / unban ───────────────────────────────────────────────────────────
