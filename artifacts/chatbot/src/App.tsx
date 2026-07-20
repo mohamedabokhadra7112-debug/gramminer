@@ -28,6 +28,12 @@ const manifestUrl = typeof window !== 'undefined'
 
 // Keeps a CSS var in sync with the *real* visible height inside Telegram's
 // in-app browser — plain 100dvh is unreliable inside Telegram's WebView.
+//
+// Guard: only write --app-height when the value looks real (> 200px).
+// On Android after a reload, viewportStableHeight often returns 0 in the
+// first few milliseconds; writing 0px would override the CSS fallback (100dvh)
+// and collapse the app-shell to nothing. We retry via rAF + timeouts until
+// Telegram has settled the viewport.
 function useAppHeight() {
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -35,15 +41,31 @@ function useAppHeight() {
     tg?.expand?.();
 
     const applyHeight = () => {
-      const height = tg?.viewportStableHeight || tg?.viewportHeight || window.innerHeight;
-      document.documentElement.style.setProperty('--app-height', `${height}px`);
+      const h =
+        (tg?.viewportStableHeight && tg.viewportStableHeight > 200 ? tg.viewportStableHeight : 0) ||
+        (tg?.viewportHeight       && tg.viewportHeight       > 200 ? tg.viewportHeight       : 0) ||
+        (window.innerHeight       > 200 ? window.innerHeight                                  : 0);
+      if (h > 200) {
+        document.documentElement.style.setProperty('--app-height', `${h}px`);
+      }
+      // If h is still 0 here, the CSS :root fallback (100dvh) stays active —
+      // which is correct until Telegram fires viewportChanged with a real value.
     };
 
     applyHeight();
+    // Retry after first paint — rAF fires after the browser has done layout,
+    // so Telegram's viewport is usually available by then.
+    requestAnimationFrame(applyHeight);
+    // Two extra safety retries for slow Android WebView initialisation.
+    const t1 = setTimeout(applyHeight, 350);
+    const t2 = setTimeout(applyHeight, 1000);
+
     tg?.onEvent?.('viewportChanged', applyHeight);
     window.addEventListener('resize', applyHeight);
 
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
       tg?.offEvent?.('viewportChanged', applyHeight);
       window.removeEventListener('resize', applyHeight);
     };
