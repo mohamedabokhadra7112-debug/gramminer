@@ -417,7 +417,7 @@ function UsersSection() {
           className="w-full text-left bg-black/40 rounded-xl p-3 border border-white/5 hover:border-primary/30 transition-colors">
           <div className="font-bold text-white text-sm">{r.firstName ?? r.username ?? 'مجهول'}</div>
           <div className="text-xs text-muted-foreground font-mono">ID: {r.telegramId} {r.username && `· @${r.username}`}</div>
-          <div className="text-xs text-primary font-bold mt-0.5">{r.balance.toFixed(4)} gram</div>
+          <div className="text-xs text-primary font-bold mt-0.5">{Number(r.balance).toFixed(4)} gram</div>
         </button>
       ))}
 
@@ -439,7 +439,7 @@ function UsersSection() {
           </div>
 
           <div className="bg-black/40 rounded-xl p-3 text-center">
-            <div className="text-2xl font-black text-primary">{u.balance.toFixed(4)} gram</div>
+            <div className="text-2xl font-black text-primary">{Number(u.balance).toFixed(4)} gram</div>
           </div>
 
           {/* Balance adjustment */}
@@ -644,7 +644,7 @@ function WithdrawalsSection() {
             <div>
               <div className="font-bold text-white text-sm">{w.first_name ?? w.username ?? w.telegram_id}</div>
               <div className="text-xs text-muted-foreground font-mono">ID: {w.telegram_id}</div>
-              <div className="text-primary font-black text-sm mt-0.5">{w.amount.toFixed(4)} gram</div>
+              <div className="text-primary font-black text-sm mt-0.5">{Number(w.amount).toFixed(4)} gram</div>
               <div className="text-[10px] font-mono text-white/50 break-all mt-0.5">{w.wallet_address}</div>
               <div className="text-xs text-muted-foreground mt-0.5">{new Date(w.created_at).toLocaleString('ar')}</div>
             </div>
