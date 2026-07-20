@@ -83,13 +83,20 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid or expired Telegram initData' });
   }
 
-  const isAdmin = ADMIN_ID > 0 && user.id === ADMIN_ID;
-
   // Try to persist / fetch balance from DB; gracefully degrade if DB unavailable
   let balance = 0;
+  let isAdmin = ADMIN_ID > 0 && user.id === ADMIN_ID;
   try {
     const db = getPool();
-    if (db) balance = await upsertUser(db, user);
+    if (db) {
+      balance = await upsertUser(db, user);
+      // Also check sub-admins stored in gm_settings (same logic as verifyAdmin in _auth.js)
+      if (!isAdmin) {
+        const { rows } = await db.query(`SELECT value FROM gm_settings WHERE key = 'sub_admins'`);
+        const subAdmins = rows[0] ? JSON.parse(rows[0].value) : [];
+        if (subAdmins.some(a => a.telegramId === user.id)) isAdmin = true;
+      }
+    }
   } catch (err) {
     console.error('DB upsert failed:', err?.message);
   }
