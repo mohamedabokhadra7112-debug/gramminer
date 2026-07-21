@@ -64,7 +64,7 @@ export default function Combo() {
     const initData = getInitData();
     if (!initData) { setLoading(false); return; }
 
-    fetch(`${API}/api/combo`, {
+    fetch(`${API}/api/tasks?type=combo`, {
       headers: { 'x-telegram-initdata': initData },
     })
       .then(r => r.json())
@@ -93,7 +93,7 @@ export default function Combo() {
     setSubmitting(true);
     setError('');
     try {
-      const res = await fetch(`${API}/api/combo?action=submit`, {
+      const res = await fetch(`${API}/api/tasks?type=combo&action=submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

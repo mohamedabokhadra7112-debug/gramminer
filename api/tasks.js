@@ -2,6 +2,8 @@
 // GET /api/tasks                          → all non-hidden tasks (no auth)
 // GET /api/tasks?action=completed         → completion records for current user
 // POST /api/tasks?action=complete         → record completion + credit coins (NOT balance)
+// GET /api/tasks?type=combo               → today's combo status for current user
+// POST /api/tasks?type=combo&action=submit → submit combo attempt
 const { verifyTelegramUser, cors } = require('./admin/_auth');
 const { getPool } = require('./admin/_db');
 
@@ -169,6 +171,126 @@ module.exports = async function handler(req, res) {
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
+  }
+
+  // ── Combo: GET /api/tasks?type=combo ────────────────────────────────────────
+  // ── Combo: POST /api/tasks?type=combo&action=submit ─────────────────────────
+  if (req.query.type === 'combo') {
+    const COMBO_ITEMS = [
+      { id: 1, name: 'Crystal Core'   },
+      { id: 2, name: 'Mining Pickaxe' },
+      { id: 3, name: 'Mining Rig'     },
+      { id: 4, name: 'Server Node'    },
+      { id: 5, name: 'Treasure Vault' },
+    ];
+
+    const initData = req.headers['x-telegram-initdata'] || req.headers['x-init-data'];
+    if (!initData || !TOKEN) return res.status(401).json({ error: 'Unauthorized' });
+    const user = verifyTelegramUser(initData);
+    if (!user) return res.status(401).json({ error: 'Invalid initData' });
+
+    const db = getPool();
+    if (!db) return res.status(503).json({ error: 'DATABASE_URL not configured' });
+
+    // Ensure combo attempts table exists (lazy migration)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS gm_combo_attempts (
+        id          serial    PRIMARY KEY,
+        telegram_id bigint    NOT NULL,
+        combo_date  text      NOT NULL,
+        success     boolean   NOT NULL,
+        reward      integer   NOT NULL DEFAULT 0,
+        created_at  timestamp NOT NULL DEFAULT NOW(),
+        UNIQUE(telegram_id, combo_date)
+      )
+    `).catch(() => {});
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Helper: get or generate today's correct combo from gm_settings
+    async function getDailyCombo() {
+      const { rows } = await db.query(`SELECT value FROM gm_settings WHERE key = 'daily_combo'`);
+      if (rows.length > 0) {
+        try {
+          const parsed = JSON.parse(rows[0].value);
+          if (parsed.date === today) return parsed;
+        } catch (_) {}
+      }
+      const pool = [1, 2, 3, 4, 5];
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      const correctIds = pool.slice(0, 3).sort((a, b) => a - b);
+      const combo = { date: today, correctIds };
+      await db.query(
+        `INSERT INTO gm_settings (key, value) VALUES ('daily_combo', $1)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [JSON.stringify(combo)]
+      );
+      return combo;
+    }
+
+    // GET — return items + today's attempt status (no correct IDs revealed)
+    if (req.method === 'GET') {
+      const combo = await getDailyCombo();
+      const { rows } = await db.query(
+        `SELECT success, reward FROM gm_combo_attempts
+         WHERE telegram_id = $1 AND combo_date = $2`,
+        [user.id, today]
+      );
+      const attempt = rows[0] || null;
+      return res.json({
+        items:          COMBO_ITEMS,
+        attemptedToday: !!attempt,
+        success:        attempt ? attempt.success : null,
+        reward:         attempt ? attempt.reward  : null,
+      });
+    }
+
+    // POST?action=submit
+    if (req.method === 'POST' && req.query.action === 'submit') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const { selectedIds } = body;
+      if (!Array.isArray(selectedIds) || selectedIds.length !== 3) {
+        return res.status(400).json({ error: 'selectedIds must be an array of exactly 3 IDs' });
+      }
+
+      // Guard double-submit before hitting DB
+      const { rows: existing } = await db.query(
+        `SELECT id FROM gm_combo_attempts WHERE telegram_id = $1 AND combo_date = $2`,
+        [user.id, today]
+      );
+      if (existing.length > 0) return res.status(409).json({ error: 'already_attempted' });
+
+      const combo    = await getDailyCombo();
+      const selected = [...selectedIds].map(Number).sort((a, b) => a - b);
+      const correct  = [...combo.correctIds].sort((a, b) => a - b);
+      const success  = selected.length === correct.length &&
+                       selected.every((v, i) => v === correct[i]);
+      const reward   = success ? Math.floor(Math.random() * 10) + 1 : 0;
+
+      try {
+        await db.query(
+          `INSERT INTO gm_combo_attempts (telegram_id, combo_date, success, reward)
+           VALUES ($1, $2, $3, $4)`,
+          [user.id, today, success, reward]
+        );
+        if (success && reward > 0) {
+          await db.query(
+            `UPDATE gm_users SET coins = coins + $1, last_active_at = NOW()
+             WHERE telegram_id = $2`,
+            [reward, user.id]
+          );
+        }
+        return res.json({ ok: true, success, reward });
+      } catch (e) {
+        if (e.code === '23505') return res.status(409).json({ error: 'already_attempted' });
+        return res.status(500).json({ error: e.message });
+      }
+    }
+
+    return res.status(405).end();
   }
 
   // ── GET /api/tasks (no action) → all non-hidden tasks ───────────────────────
