@@ -3,7 +3,7 @@ import {
   Shield, BarChart3, MessageSquare, ClipboardList, Radio, DollarSign,
   Users, Plus, Trash2, Eye, EyeOff, Ban, Coins, AlertTriangle,
   ChevronDown, ChevronUp, Send, Wrench, Settings, Pickaxe, ArrowDownUp,
-  UserPlus, Search, Check, X, ArrowUp,
+  UserPlus, Search, Check, X, ArrowUp, Sparkles,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -852,6 +852,45 @@ function AdminsSection() {
   );
 }
 
+// ─── Daily Combo (read-only view) ─────────────────────────────────────────
+const COMBO_ITEM_NAMES: Record<number, string> = {
+  1: 'Crystal Core', 2: 'Mining Pickaxe', 3: 'Mining Rig',
+  4: 'Server Node',  5: 'Treasure Vault',
+};
+const COMBO_EMOJIS: Record<number, string> = {
+  1: '💎', 2: '⛏️', 3: '🖥️', 4: '🗄️', 5: '🪙',
+};
+
+function ComboDailySection() {
+  const [combo, setCombo] = useState<{ date: string|null; correctIds: number[]; correctNames: string[] } | null>(null);
+  const [err, setErr]     = useState('');
+
+  useEffect(() => {
+    api<{ date: string|null; correctIds: number[]; correctNames: string[] }>(
+      'GET', '/admin/general?type=combo'
+    ).then(setCombo).catch(e => setErr(e.message));
+  }, []);
+
+  if (err)   return <div className="text-destructive text-sm">{err}</div>;
+  if (!combo) return <div className="text-muted-foreground text-sm">جار التحميل...</div>;
+  if (!combo.date) return <div className="text-muted-foreground text-sm">لا يوجد كومبو محدد بعد — سيُنشأ تلقائياً عند أول طلب</div>;
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-muted-foreground">تاريخ اليوم: <span className="text-white font-bold">{combo.date}</span></div>
+      <div className="text-xs text-muted-foreground mb-1">الكومبو الصح لليوم ده:</div>
+      <div className="flex gap-2 flex-wrap">
+        {combo.correctIds.map(id => (
+          <div key={id} className="flex items-center gap-2 bg-primary/10 border border-primary/30 rounded-xl px-3 py-2">
+            <span className="text-lg">{COMBO_EMOJIS[id]}</span>
+            <span className="text-white font-bold text-xs">{COMBO_ITEM_NAMES[id]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────
 export default function Admin() {
   return (
@@ -906,6 +945,9 @@ export default function Admin() {
         </Section>
         <Section title="الأدمن المساعدون" icon={UserPlus}>
           <AdminsSection />
+        </Section>
+        <Section title="الكومبو اليومي" icon={Sparkles}>
+          <ComboDailySection />
         </Section>
       </div>
     </div>

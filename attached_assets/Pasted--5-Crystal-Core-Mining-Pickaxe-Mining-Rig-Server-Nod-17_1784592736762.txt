@@ -1,0 +1,39 @@
+عايزين نضيف ميزة "الكومبو اليومي": 5 صور ثابتة (Crystal Core, Mining Pickaxe, Mining Rig, Server Node, Treasure Vault)، وكل 24 ساعة السيرفر بيختار 3 منهم عشوائيًا كـ"الكومبو الصح". كل مستخدم عنده محاولة واحدة بس في اليوم: لو اختار التلاتة الصح ياخد مكافأة عشوائية بين 1 و10 coin، لو غلط يخسر المحاولة ويستنى لليوم اللي بعده.
+
+1. إضافة جدول جديد في lib/db/src/schema/index.ts:
+
+ts
+export const comboAttemptsTable = pgTable(
+  "gm_combo_attempts",
+  {
+    id: serial("id").primaryKey(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    comboDate: text("combo_date").notNull(), // "YYYY-MM-DD"
+    success: boolean("success").notNull(),
+    reward: integer("reward").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.telegramId, t.comboDate)],
+);
+
+واستخدم gm_settings (الموجود أصلاً) لتخزين الكومبو الصح لليوم الحالي، بمفتاح daily_combo، بقيمة JSON زي: { "date": "2026-07-21", "correctIds": [1, 3, 5] }. الصور الخمسة ليها IDs ثابتة من 1 لـ 5 بنفس ترتيب: 1=Crystal Core, 2=Mining Pickaxe, 3=Mining Rig, 4=Server Node, 5=Treasure Vault.
+
+2. ملف جديد api/combo.js (endpoint واحد بنمط query الموجود في المشروع):
+
+GET /api/combo (يتطلب x-telegram-initdata header):
+لو daily_combo في gm_settings تاريخه مش اليوم الحالي (أو مش موجود)، ولّد 3 أرقام عشوائية من 1-5 واحفظها بتاريخ اليوم
+رجّع للمستخدم: قائمة الصور الخمسة (بدون كشف الصح)، وهل عمل محاولة النهاردة قبل كده (attemptedToday: true/false)، ولو عمل هل نجح
+POST /api/combo?action=submit بـ body { selectedIds: [x,y,z] }:
+تحقق من هوية المستخدم عن طريق initData
+تحقق إنه مفيش محاولة مسجلة له في gm_combo_attempts لنفس تاريخ اليوم (unique constraint هيرفض تلقائي لو حاول تاني)
+قارن selectedIds (كـ set) مع correctIds المحفوظة
+لو متطابقين: ولّد رقم عشوائي بين 1 و10، أضفه لعمود coins بتاع المستخدم في gm_users، سجل المحاولة success: true مع الـ reward، رجّع { ok: true, success: true, reward }
+لو مش متطابقين: سجل المحاولة success: false, reward: 0، رجّع { ok: true, success: false }
+
+3. في api/admin/general.js، أضف type=combo (GET بس، admin فقط): يرجع الكومبو الصح الحالي (للعرض/المتابعة، مش للتعديل).
+
+4. الفرونت إند:
+
+أضف component جديد (زي Combo.tsx جوه pages/) بتصميم شبيه بالصورة المرفقة (5 كروت صور، اختيار 3، زرار "تحقق من الكومبو")، بألوان متناسقة مع باقي التطبيق (الخلفية الداكنة والـ primary اللون الذهبي/العنبي زي باقي الصفحات)
+في Admin.tsx، أضف قسم جديد "الكومبو اليومي" (Section) بيعرض الكومبو الصح الحالي بس للمتابعة (زي type=combo)
+أضف رابط للصفحة الجديدة في BottomNav أو مكان مناسب

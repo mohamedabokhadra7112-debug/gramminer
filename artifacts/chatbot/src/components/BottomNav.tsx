@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'wouter';
-import { Pickaxe, Zap, ClipboardList, Users, User, Shield } from 'lucide-react';
+import { Pickaxe, Zap, ClipboardList, Users, User, Shield, Sparkles } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 
 const APP_VERSION = 'v1.0.4';
@@ -12,6 +12,7 @@ export default function BottomNav({ showAdmin = false }: { showAdmin?: boolean }
     { path: '/',        label: t('nav_mine'),    icon: Pickaxe      },
     { path: '/miners',  label: t('nav_miners'),  icon: Zap          },
     { path: '/tasks',   label: t('nav_tasks'),   icon: ClipboardList },
+    { path: '/combo',   label: 'كومبو',          icon: Sparkles     },
     { path: '/friends', label: t('nav_friends'), icon: Users        },
     { path: '/profile', label: t('nav_profile'), icon: User         },
     ...(showAdmin ? [{ path: '/admin', label: t('nav_admin'), icon: Shield }] : []),

@@ -8,6 +8,7 @@ import Tasks from './pages/Tasks';
 import Friends from './pages/Friends';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
+import Combo from './pages/Combo';
 import BottomNav from './components/BottomNav';
 import { WalletProvider } from './context/WalletContext';
 import { TelegramUserProvider } from './context/TelegramUserContext';
@@ -193,6 +194,7 @@ function Router() {
               <Route path="/" component={Dashboard} />
               <Route path="/miners" component={Miners} />
               <Route path="/tasks" component={Tasks} />
+              <Route path="/combo" component={Combo} />
               <Route path="/friends" component={Friends} />
               <Route path="/profile" component={Profile} />
               {isAdmin && <Route path="/admin" component={Admin} />}

@@ -104,6 +104,20 @@ export const earningsLogTable = pgTable("gm_earnings_log", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ─── Daily Combo Attempts ─────────────────────────────────────────────────────
+export const comboAttemptsTable = pgTable(
+  "gm_combo_attempts",
+  {
+    id: serial("id").primaryKey(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    comboDate: text("combo_date").notNull(), // "YYYY-MM-DD"
+    success: boolean("success").notNull(),
+    reward: integer("reward").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.telegramId, t.comboDate)],
+);
+
 export type User = typeof usersTable.$inferSelect;
 export type Task = typeof tasksTable.$inferSelect;
 export type Channel = typeof channelsTable.$inferSelect;

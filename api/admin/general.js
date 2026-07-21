@@ -86,5 +86,23 @@ module.exports = async function handler(req, res) {
     } catch (e) { return res.status(500).json({ error: e.message }); }
   }
 
+  // ── Combo (GET only) — returns today's correct combo for admin monitoring ──
+  if (type === 'combo' && req.method === 'GET') {
+    try {
+      const ITEM_NAMES = {
+        1: 'Crystal Core', 2: 'Mining Pickaxe', 3: 'Mining Rig',
+        4: 'Server Node',  5: 'Treasure Vault',
+      };
+      const { rows } = await db.query(`SELECT value FROM gm_settings WHERE key = 'daily_combo'`);
+      if (!rows.length) return res.json({ date: null, correctIds: [], correctNames: [] });
+      const combo = JSON.parse(rows[0].value);
+      return res.json({
+        date:         combo.date,
+        correctIds:   combo.correctIds,
+        correctNames: combo.correctIds.map(id => ITEM_NAMES[id] || `Item ${id}`),
+      });
+    } catch (e) { return res.status(500).json({ error: e.message }); }
+  }
+
   res.status(400).json({ error: 'Invalid type or method' });
 };
