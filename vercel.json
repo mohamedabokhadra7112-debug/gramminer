@@ -1,9 +1,0 @@
-{
-  "buildCommand": "pnpm --filter @workspace/chatbot run build",
-  "outputDirectory": "artifacts/chatbot/dist/public",
-  "installCommand": "pnpm install",
-  "framework": null,
-  "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ]
-}

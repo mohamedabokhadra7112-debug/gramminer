@@ -10,14 +10,14 @@ const isProduction = process.env.NODE_ENV === 'production';
 const rawPort = process.env.PORT;
 const port = rawPort ? Number(rawPort) : 3000;
 
-// BASE_PATH defaults to '/' for Vercel / any host that serves from root.
+// BASE_PATH defaults to '/' for a root-hosted Replit preview.
 const basePath = process.env.BASE_PATH ?? '/';
 
 export default defineConfig(async () => {
   const plugins = [
     react(),
     tailwindcss(),
-    // Replit-only plugins — never loaded on Vercel (production build)
+    // Replit-only development plugins are skipped for production builds.
     ...(!isProduction && isReplit
       ? [
           (await import('@replit/vite-plugin-runtime-error-modal')).default(),
@@ -39,7 +39,7 @@ export default defineConfig(async () => {
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, 'src'),
-        // @assets only exists in Replit; on Vercel use an empty stub
+        // Keep the imported asset alias compatible with local and hosted builds.
         '@assets': isReplit
           ? path.resolve(import.meta.dirname, '..', '..', 'attached_assets')
           : path.resolve(import.meta.dirname, 'src', 'assets'),

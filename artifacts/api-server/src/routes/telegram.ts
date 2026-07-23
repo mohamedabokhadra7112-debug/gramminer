@@ -799,7 +799,7 @@ router.get("/telegram/webhookinfo", async (_req, res) => {
 });
 
 // Handles incoming Telegram bot updates.
-// Accepts both /api/telegram/webhook (new) and /api/webhook (old Vercel path) to survive migration.
+// Accepts both /api/telegram/webhook (new) and /api/webhook for bot compatibility.
 router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
   logger.debug({ path: req.path, hasBody: !!req.body }, "Telegram webhook received");
 
@@ -1478,7 +1478,9 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       await sendMessage(token, chat_id, welcomeText, {
         reply_markup: {
           inline_keyboard: [
-            [{ text: BOT_MSG.en.open_button, web_app: { url: miniAppUrl || "https://gramminer-api-server-nine.vercel.app/" } }],
+            ...(miniAppUrl
+              ? [[{ text: BOT_MSG.en.open_button, web_app: { url: miniAppUrl } }]]
+              : []),
           ],
         },
       });
@@ -1507,7 +1509,11 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
 // Schema is created lazily (first request wins) following the lazy-migration
 // pattern used throughout this codebase.
 
-async function ensureMinersSchema(pool: import("pg").Pool) {
+type QueryPool = {
+  query: (sql: string) => Promise<unknown>;
+};
+
+async function ensureMinersSchema(pool: QueryPool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS gm_miners (
       telegram_id   BIGINT  NOT NULL,

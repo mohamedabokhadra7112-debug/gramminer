@@ -2,7 +2,7 @@
  * GET /api/tonconnect-manifest
  *
  * Returns the TON Connect manifest JSON dynamically so that `iconUrl`
- * always resolves to the correct origin (no hard-coded Vercel URL,
+ * always resolves to the correct origin (no hard-coded hosted URL,
  * no 302 redirects that TON wallets won't follow).
  *
  * The frontend passes its own origin as `?origin=<url>` so the icon

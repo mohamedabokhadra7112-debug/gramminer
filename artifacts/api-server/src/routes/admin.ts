@@ -1,6 +1,6 @@
 /**
  * Consolidated admin API — all routes use query parameters instead of
- * separate paths to stay within Vercel Hobby's 12-function limit.
+ * separate paths so each admin capability remains independently testable.
  *
  *   GET  /api/admin/general?type=stats|settings|tasks|channels|miners|withdrawals|admins
  *   POST /api/admin/general?type=settings|broadcast|tasks|channels|miners|admins

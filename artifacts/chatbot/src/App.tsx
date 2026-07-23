@@ -21,7 +21,7 @@ import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 const queryClient = new QueryClient();
 
 // The TON Connect manifest is served dynamically from the API so the iconUrl
-// is always built from the real origin (no broken Vercel redirect).
+// is always built from the real origin without relying on a hosted redirect.
 // API_BASE is '' in dev (Vite proxy forwards /api → port 8080).
 const manifestUrl = typeof window !== 'undefined'
   ? `/api/tonconnect-manifest?origin=${encodeURIComponent(window.location.origin)}`

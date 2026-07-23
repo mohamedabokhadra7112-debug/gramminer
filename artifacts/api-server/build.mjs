@@ -70,14 +70,6 @@ async function buildAll() {
     outdir: distDir,
   });
 
-  // ── Entry 2: app-only export (no listen()) ───────────────────────────────
-  // Used by Vercel's serverless function (api/index.js).
-  // Produces dist/app.mjs which exports the Express app as default.
-  await esbuild({
-    ...shared,
-    entryPoints: [path.resolve(artifactDir, "src/app.ts")],
-    outdir: distDir,
-  });
 }
 
 buildAll().catch((err) => {
