@@ -1,0 +1,279 @@
+You are a senior Full Stack Developer.
+
+IMPORTANT:
+
+* Do NOT rewrite or replace the server architecture.
+* Do NOT break any existing API, database, webhook, or Telegram bot logic.
+* Keep all existing server files working.
+* Modify only the necessary files.
+* Use the existing database and coding style.
+* Make sure the project builds successfully without any errors.
+
+Implement the following features:
+
+## 1. Referral System
+
+Improve the referral system.
+
+* Add referral milestones.
+* Example:
+
+  * Invite 5 users = Reward 10 Coins.
+  * More milestones should be configurable.
+* All milestone rewards must be editable from the Admin Panel.
+* Admin can:
+
+  * Add new milestone.
+  * Edit milestone.
+  * Delete milestone.
+  * Change reward amount.
+
+---
+
+## 2. Admin Tasks
+
+Improve the Admin Panel.
+
+Admin should be able to:
+
+* Create tasks.
+* Edit tasks.
+* Delete tasks.
+* Enable/Disable tasks.
+
+Task type:
+
+* Mandatory Telegram Channel Join.
+* Mandatory Telegram Group Join.
+
+Each task must include:
+
+* Title
+* Reward
+* Join Link
+* Telegram Chat ID or Username
+* Verification
+
+The bot must verify that the user actually joined before giving the reward.
+
+---
+
+## 3. Withdraw System
+
+Enable the withdraw system.
+
+When a user submits a withdraw request:
+
+* Save the request.
+* Send notification to Admin with:
+
+User Name
+
+Username
+
+Telegram ID
+
+Wallet Address
+
+Amount
+
+Date
+
+Admin can:
+
+Approve
+
+Reject
+
+If approved:
+
+* Automatically complete the withdrawal.
+* Notify the user:
+  "Withdrawal completed successfully."
+
+If rejected:
+
+* Refund the balance automatically.
+* Notify the user:
+  "Your withdrawal request has been rejected and your balance has been returned."
+
+---
+
+## 4. Automatic Deposit Verification
+
+Implement automatic Gram deposit verification.
+
+Requirements:
+
+* TON has been renamed to Gram everywhere.
+* Detect incoming Gram transactions to the wallet.
+* Verify that the transaction is real and confirmed on the blockchain.
+* Reject fake, duplicate, pending, or invalid transactions.
+* Credit balance only after blockchain confirmation.
+
+When deposit succeeds:
+
+User receives:
+
+* Deposit Successful
+* Amount deposited
+* Current balance
+
+Admin receives:
+
+* User Name
+* Username
+* Wallet Address
+* Deposit Amount
+
+Never credit balance before confirmation.
+
+---
+
+## 5. Automatic Deposit & Withdraw Notifications
+
+Deposit:
+
+Notify User
+
+Notify Admin
+
+Withdraw:
+
+Notify Admin when request created.
+
+Notify User after approval.
+
+Notify User after rejection.
+
+Refund automatically after rejection.
+
+---
+
+## 6. Swap System
+
+Replace every TON reference with Gram.
+
+Swap should convert:
+
+Gram ⇄ Coins
+
+Update every text, button, calculation and database field.
+
+---
+
+## 7. Combo Screen
+
+Replace the combo image button with the new provided image.
+
+Show:
+
+Current attempts
+
+Remaining attempts
+
+Allow the player to clearly know how many attempts remain before playing again.
+
+---
+
+## 8. Store System
+
+Remove the Devices system completely.
+
+Replace it with a Coin Store.
+
+Admin Panel must support:
+
+Add Product
+
+Edit Product
+
+Delete Product
+
+Example:
+
+700 Coins = 1 Gram
+
+Products must be configurable.
+
+Mining Logic:
+
+Every purchase generates daily mining income.
+
+Daily mining = 5% every 24 hours.
+
+Example:
+
+700 Coins purchased
+
+Daily reward = 0.05 Gram every 24 hours.
+
+Support multiple purchases.
+
+Mining should calculate based on the user's purchased Coins.
+
+---
+
+## 9. Mining Start Condition
+
+New users should NOT start mining automatically.
+
+Mining starts only after the user owns Coins.
+
+Coins can be earned from:
+
+Tasks
+
+Referral rewards
+
+Coin Store purchases
+
+The bot should automatically detect when the user's coin balance becomes greater than zero and begin mining.
+
+If Coins become zero again, mining stops automatically.
+
+---
+
+## 10. Rename TON
+
+Replace every occurrence of TON with Gram.
+
+This includes:
+
+Database
+
+Buttons
+
+Messages
+
+Admin Panel
+
+Swap
+
+Deposit
+
+Withdraw
+
+Wallet
+
+Everything shown to users.
+
+---
+
+## 11. Final Requirements
+
+* Keep the existing project structure.
+* Keep all API routes working.
+* Keep webhook working.
+* Do not remove any existing feature.
+* Do not break the server.
+* Do not change environment variables.
+* Do not modify deployment settings.
+* Do not remove database tables unless replacing the Device system with the new Store system.
+* Run a full project check after all modifications.
+* Fix every TypeScript error.
+* Fix every build error.
+* Ensure the project compiles successfully.
+* Ensure Telegram Bot works correctly.
+* Ensure Admin Panel works correctly.
+* Ensure all new features are fully integrated.
