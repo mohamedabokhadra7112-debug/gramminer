@@ -235,6 +235,107 @@ router.post("/telegram/deposit/submit", async (req, res): Promise<void> => {
   }
 });
 
+// ── POST /api/telegram/deposit/tonconnect ────────────────────────────────────
+// User paid gram via TON Connect — credit gram balance automatically.
+// body: { initData, boc, amountGram }
+router.post("/telegram/deposit/tonconnect", async (req, res): Promise<void> => {
+  const token = getBotToken();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const { initData, boc, amountGram } = (req.body ?? {}) as Record<string, unknown>;
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "initData required" }); return;
+  }
+  if (typeof boc !== "string" || !boc) {
+    res.status(400).json({ error: "boc required" }); return;
+  }
+  const amt = Number(amountGram);
+  if (!Number.isFinite(amt) || amt <= 0) {
+    res.status(400).json({ error: "amountGram must be a positive number" }); return;
+  }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  await ensureDepositSchema();
+  try {
+    const { pool } = await import("@workspace/db");
+
+    // Store boc column (best-effort migration)
+    await pool.query(
+      `ALTER TABLE gm_deposits ADD COLUMN IF NOT EXISTS ton_boc text`,
+    ).catch(() => {});
+
+    // Use boc as unique tx_hash to prevent double-crediting
+    const bocHash = `tonconnect:${Buffer.from(boc).toString("base64").slice(0, 64)}`;
+
+    let depositId: number;
+    try {
+      const insertRes = await pool.query<{ id: number }>(
+        `INSERT INTO gm_deposits
+           (telegram_id, wallet_address, tx_hash, amount, status, confirmations, credited_at, processed_at)
+         VALUES ($1, $2, $3, $4, 'confirmed', 1, NOW(), NOW())
+         RETURNING id`,
+        [user.id, "tonconnect", bocHash, amt],
+      );
+      depositId = insertRes.rows[0]!.id;
+    } catch (e: unknown) {
+      if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "23505") {
+        res.status(409).json({ error: "هذه المعاملة تمت معالجتها بالفعل." }); return;
+      }
+      throw e;
+    }
+
+    // Store boc for audit
+    pool.query(
+      `UPDATE gm_deposits SET ton_boc=$1 WHERE id=$2`,
+      [boc.slice(0, 2000), depositId],
+    ).catch(() => {});
+
+    // Credit gram balance
+    await pool.query(
+      `UPDATE gm_users
+       SET balance = ROUND(CAST(balance AS numeric) + CAST($1 AS numeric), 6)::double precision
+       WHERE telegram_id = $2`,
+      [amt, user.id],
+    );
+
+    // Load updated balance
+    const balRes = await pool.query<{ balance: number }>(
+      `SELECT balance FROM gm_users WHERE telegram_id=$1`,
+      [user.id],
+    );
+    const newBalance = balRes.rows[0]?.balance ?? 0;
+
+    // Notify user
+    await notifyTelegram(
+      user.id,
+      `✅ <b>تم تأكيد الإيداع!</b>\n\n💰 المبلغ: <b>${amt.toFixed(4)} gram</b>\n\nتم إضافة الرصيد لحسابك تلقائياً.`,
+    );
+
+    // Notify admins
+    for (const adminId of getAdminIds()) {
+      await notifyTelegram(
+        adminId,
+        `💰 <b>إيداع TON Connect جديد #${depositId}</b>\n\n` +
+        `👤 ${user.first_name ?? "Miner"} (ID: ${user.id})\n` +
+        `💵 المبلغ: ${amt.toFixed(4)} gram\n` +
+        `✅ تم الإضافة تلقائياً`,
+      );
+    }
+
+    res.json({
+      ok: true,
+      depositId,
+      balance: newBalance,
+      message: `✅ تم إيداع ${amt.toFixed(4)} gram وإضافته لرصيدك.`,
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /telegram/deposit/tonconnect failed");
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
 // ── GET /api/telegram/deposit/status ─────────────────────────────────────────
 router.get("/telegram/deposit/status", async (req, res): Promise<void> => {
   const token = getBotToken();

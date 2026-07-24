@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Settings, ArrowLeftRight, ChevronRight, Check, ArrowUp, ArrowDown, Wallet, Clock } from 'lucide-react';
+import { Settings, ArrowLeftRight, ChevronRight, Check, ArrowUp, ArrowDown, Wallet } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage, SUPPORTED_LANGUAGES, type Lang } from '@/context/LanguageContext';
 import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
 import WalletModal from '@/components/WalletModal';
+import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 
 // ─── Swap Panel ───────────────────────────────────────────────────────────────
 function SwapPanel({ onClose }: { onClose: () => void }) {
@@ -179,44 +180,102 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
 }
 
 // ─── Deposit Panel ────────────────────────────────────────────────────────────
+// TON Connect direct payment — user pays gram to the bot's wallet and it's
+// credited automatically (no TX Hash / admin approval needed).
+const OWNER_WALLET = import.meta.env.VITE_OWNER_WALLET as string | undefined;
 function DepositPanel({ onClose }: { onClose: () => void }) {
-  const [txHash, setTxHash] = useState('');
+  const [tonConnectUI] = useTonConnectUI();
+  const tonWallet = useTonWallet();
+
   const [amount, setAmount] = useState('');
   const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'ok' | 'err'; msg: string }>({ type: 'idle', msg: '' });
-  const [history, setHistory] = useState<{ id: number; amount: number; status: string; created_at: string; tx_hash: string | null }[]>([]);
+  const [history, setHistory] = useState<{ id: number; amount: number; status: string; created_at: string }[]>([]);
+  const [showConnectNote, setShowConnectNote] = useState(false);
+
+  const connected = Boolean(tonWallet?.account?.address);
+  const amtNum = parseFloat(amount) || 0;
 
   useEffect(() => {
     const initData = getInitData();
     if (!initData) return;
     fetch(`${API_BASE}/api/telegram/deposit/status`, { headers: { 'x-init-data': initData } })
       .then(r => r.ok ? r.json() : [])
-      .then((d: { id: number; amount: number; status: string; created_at: string; tx_hash: string | null }[]) => {
-        if (Array.isArray(d)) setHistory(d);
+      .then((d: { id: number; amount: number; status: string; created_at: string }[]) => {
+        if (Array.isArray(d)) setHistory(d.slice(0, 10));
       })
       .catch(() => {});
   }, []);
 
-  const submit = async () => {
-    if (!txHash.trim()) return;
+  // If user just connected wallet after tapping "Connect", auto-proceed is handled by
+  // watching connected state — UX: just show the Pay button, user taps again.
+  useEffect(() => {
+    if (connected) setShowConnectNote(false);
+  }, [connected]);
+
+  const handlePay = async () => {
+    if (!amtNum || amtNum <= 0) return;
+
+    if (!connected) {
+      setShowConnectNote(true);
+      tonConnectUI.openModal();
+      return;
+    }
+
+    const toAddress = OWNER_WALLET;
+    if (!toAddress || toAddress.startsWith('0:0000')) {
+      setStatus({ type: 'err', msg: '❌ محفظة البوت غير مُعدَّة. تواصل مع الدعم.' });
+      return;
+    }
+
     setStatus({ type: 'loading', msg: '' });
     try {
-      const data = await telegramApiPost<{ ok: boolean; message: string }>('/telegram/deposit/submit', {
-        txHash: txHash.trim(),
-        amount: parseFloat(amount) || undefined,
+      // amtNum gram → nanotons (1 gram = 1 TON = 1e9 nanoton on TON chain)
+      const nanotons = BigInt(Math.round(amtNum * 1e9));
+
+      const result = await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 600,
+        messages: [{
+          address: toAddress,
+          amount: nanotons.toString(),
+          payload: btoa(`deposit:gram:${amtNum}`),
+        }],
       });
-      setStatus({ type: 'ok', msg: data.message || '✅ تم إرسال طلب الإيداع للمراجعة' });
-      setTxHash('');
-      setAmount('');
+
+      // Submit BOC to backend — backend credits gram balance automatically
+      const data = await telegramApiPost<{ ok: boolean; balance?: number; message?: string }>(
+        '/telegram/deposit/tonconnect',
+        { boc: result.boc, amountGram: amtNum },
+      );
+
+      if (data.ok) {
+        setStatus({ type: 'ok', msg: data.message ?? `✅ تم إيداع ${amtNum.toFixed(4)} gram بنجاح!` });
+        setAmount('');
+        // Reload history
+        const initData = getInitData();
+        if (initData) {
+          fetch(`${API_BASE}/api/telegram/deposit/status`, { headers: { 'x-init-data': initData } })
+            .then(r => r.ok ? r.json() : [])
+            .then((d: { id: number; amount: number; status: string; created_at: string }[]) => {
+              if (Array.isArray(d)) setHistory(d.slice(0, 10));
+            }).catch(() => {});
+        }
+      } else {
+        setStatus({ type: 'err', msg: `❌ ${data.message ?? 'فشل الإيداع'}` });
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setStatus({ type: 'err', msg: `❌ ${msg}` });
+      if (msg.includes('User rejected') || msg.includes('reject') || msg.includes('cancel')) {
+        setStatus({ type: 'err', msg: '❌ تم الإلغاء' });
+      } else {
+        setStatus({ type: 'err', msg: `❌ ${msg}` });
+      }
     }
   };
 
   const statusColor = (s: string) =>
-    s === 'approved' ? 'text-green-400' : s === 'rejected' ? 'text-red-400' : 'text-yellow-400';
+    s === 'confirmed' ? 'text-green-400' : s === 'rejected' ? 'text-red-400' : 'text-yellow-400';
   const statusLabel = (s: string) =>
-    s === 'approved' ? '✅ تمت الموافقة' : s === 'rejected' ? '❌ مرفوض' : '⏳ قيد المراجعة';
+    s === 'confirmed' ? '✅ مؤكد' : s === 'rejected' ? '❌ مرفوض' : '⏳ قيد المراجعة';
 
   return (
     <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
@@ -226,38 +285,53 @@ function DepositPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pt-6 space-y-4">
-        {/* Info */}
-        <div className="bg-primary/10 border border-primary/30 rounded-2xl p-4">
-          <div className="text-xs text-white/60 mb-1 font-bold">كيفية الإيداع</div>
-          <div className="text-sm text-white/80 leading-relaxed">
-            أرسل gram إلى محفظة البوت، ثم أدخل رقم المعاملة (TX Hash) هنا للتحقق والإضافة لرصيدك.
-          </div>
+        {/* Wallet status */}
+        <div className={`rounded-2xl p-4 border ${connected ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
+          <div className="text-xs text-muted-foreground mb-1 font-bold">المحفظة</div>
+          {connected ? (
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-400" />
+              <span className="text-green-400 font-mono text-sm">
+                {tonWallet?.account?.address?.slice(0, 6)}...{tonWallet?.account?.address?.slice(-4)}
+              </span>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setShowConnectNote(true); tonConnectUI.openModal(); }}
+              className="text-primary font-bold text-sm underline underline-offset-2"
+            >
+              💎 ربط محفظة TON
+            </button>
+          )}
         </div>
 
-        {/* TX Hash input */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-          <div className="text-xs text-muted-foreground font-bold uppercase">رقم المعاملة (TX Hash)</div>
-          <input
-            type="text"
-            value={txHash}
-            onChange={e => setTxHash(e.target.value)}
-            placeholder="أدخل رقم المعاملة..."
-            className="w-full bg-transparent text-sm font-mono text-white outline-none"
-            dir="ltr"
-          />
-        </div>
+        {showConnectNote && !connected && (
+          <div className="bg-primary/10 border border-primary/30 rounded-2xl p-3 text-sm text-primary/90 text-center">
+            بعد ربط المحفظة، اضغط "إيداع" مرة ثانية.
+          </div>
+        )}
 
         {/* Amount input */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
-          <div className="text-xs text-muted-foreground font-bold uppercase">مبلغ الإيداع (gram) — اختياري</div>
-          <input
-            type="number"
-            value={amount}
-            onChange={e => setAmount(e.target.value)}
-            placeholder="0.00"
-            className="w-full bg-transparent text-2xl font-black text-white outline-none"
-            dir="ltr"
-          />
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
+          <div className="text-xs text-muted-foreground font-bold uppercase">مبلغ الإيداع (gram)</div>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              value={amount}
+              onChange={e => { setAmount(e.target.value); setStatus({ type: 'idle', msg: '' }); }}
+              placeholder="0.00"
+              className="flex-1 bg-transparent text-3xl font-black text-white outline-none"
+              dir="ltr"
+              min="0"
+              step="0.01"
+            />
+            <div className="bg-primary/20 border border-primary/40 rounded-xl px-3 py-1.5">
+              <span className="text-primary font-black text-sm">gram</span>
+            </div>
+          </div>
+          {amtNum > 0 && (
+            <div className="text-xs text-white/40">≈ {amtNum.toFixed(4)} TON</div>
+          )}
         </div>
 
         {/* Status message */}
@@ -270,31 +344,44 @@ function DepositPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* Submit */}
+        {/* Pay button */}
         <button
-          onClick={submit}
-          disabled={status.type === 'loading' || !txHash.trim()}
-          className="w-full py-4 rounded-2xl bg-primary text-black font-black text-base disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
+          onClick={handlePay}
+          disabled={status.type === 'loading' || amtNum <= 0}
+          className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#f5a623] to-[#ffd700] text-black font-black text-base shadow-[0_0_20px_rgba(245,166,35,0.3)] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
         >
-          {status.type === 'loading' ? '⏳ جار الإرسال...' : '📥 إرسال طلب الإيداع'}
+          {status.type === 'loading'
+            ? '⏳ جار الإيداع...'
+            : !connected
+              ? '💎 ربط المحفظة والإيداع'
+              : amtNum > 0
+                ? `📥 إيداع ${amtNum.toFixed(4)} gram`
+                : '📥 إيداع'}
         </button>
+
+        {/* Info footer */}
+        <div className="bg-black/30 border border-white/5 rounded-2xl p-4">
+          <div className="grid grid-cols-2 gap-y-2 text-xs text-gray-400">
+            <span>طريقة الدفع</span>
+            <span className="text-right text-blue-400 font-bold">TON Connect</span>
+            <span>الإضافة للرصيد</span>
+            <span className="text-right text-green-400">تلقائية فور الدفع</span>
+            <span>1 gram</span>
+            <span className="text-right text-primary font-bold">= 1 TON</span>
+          </div>
+        </div>
 
         {/* History */}
         {history.length > 0 && (
           <div className="space-y-2 pb-4">
             <div className="text-xs text-muted-foreground font-bold uppercase tracking-widest">سجل الإيداعات</div>
             {history.map(h => (
-              <div key={h.id} className="bg-black/40 border border-white/5 rounded-xl p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-bold text-white text-sm">{Number(h.amount).toFixed(4)} gram</div>
-                    <div className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleDateString('ar')}</div>
-                    {h.tx_hash && (
-                      <div className="text-[10px] font-mono text-white/40 mt-0.5 truncate max-w-[160px]">{h.tx_hash}</div>
-                    )}
-                  </div>
-                  <div className={`text-xs font-bold ${statusColor(h.status)}`}>{statusLabel(h.status)}</div>
+              <div key={h.id} className="bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-white text-sm">{Number(h.amount).toFixed(4)} gram</div>
+                  <div className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleDateString('ar')}</div>
                 </div>
+                <div className={`text-xs font-bold ${statusColor(h.status)}`}>{statusLabel(h.status)}</div>
               </div>
             ))}
           </div>
