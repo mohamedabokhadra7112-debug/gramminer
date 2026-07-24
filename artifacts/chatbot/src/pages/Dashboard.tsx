@@ -112,7 +112,7 @@ export default function Dashboard() {
       {/* Session Earnings */}
       <div className="flex justify-center mt-3 relative z-10">
         <div className="text-[clamp(2rem,9vw,3rem)] font-black text-success glow-text-success tabular-nums">
-          +{formatGram(sessionEarnings, 4)}
+          +{formatGram(sessionEarnings, sessionEarnings < 0.0001 && sessionEarnings > 0 ? 8 : 4)}
         </div>
       </div>
 
