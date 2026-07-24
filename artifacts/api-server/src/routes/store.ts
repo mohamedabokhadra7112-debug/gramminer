@@ -60,6 +60,18 @@ async function ensureStoreSchema() {
     await pool.query(
       `CREATE INDEX IF NOT EXISTS gm_store_purchases_tg_idx ON gm_store_purchases (telegram_id)`,
     );
+    // Seed default products on first run if table is empty
+    await pool.query(`
+      INSERT INTO gm_store_products (name, description, coin_price, gram_value, daily_mining_pct, is_enabled)
+      SELECT name, description, coin_price, gram_value, daily_mining_pct, is_enabled FROM (VALUES
+        ('⚡ Starter',  'باقة بداية',    700,   1.0,  0.05, true),
+        ('🔥 Basic',    'باقة أساسية',   3500,  5.0,  0.05, true),
+        ('💎 Standard', 'باقة معيارية',  7000,  10.0, 0.05, true),
+        ('🏆 Advanced', 'باقة متقدمة',   17500, 25.0, 0.05, true),
+        ('👑 Elite',    'باقة النخبة',   35000, 50.0, 0.05, true)
+      ) AS v(name, description, coin_price, gram_value, daily_mining_pct, is_enabled)
+      WHERE NOT EXISTS (SELECT 1 FROM gm_store_products LIMIT 1)
+    `);
   } catch (e) {
     logger.warn({ e }, "store schema migration skipped");
   }
@@ -175,6 +187,92 @@ router.post("/store/purchase", async (req, res): Promise<void> => {
     });
   } catch (err) {
     logger.error({ err }, "POST /store/purchase failed");
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
+// ── POST /api/store/gram-purchase ─────────────────────────────────────────────
+// User paid gram via TON Connect — credit coins + record purchase.
+// body: { initData, productId, boc }
+router.post("/store/gram-purchase", async (req, res): Promise<void> => {
+  const token = getBotToken();
+  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+
+  const { initData, productId, boc } = (req.body ?? {}) as Record<string, unknown>;
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "initData required" }); return;
+  }
+  const pid = Number(productId);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    res.status(400).json({ error: "productId must be a positive integer" }); return;
+  }
+  if (typeof boc !== "string" || !boc) {
+    res.status(400).json({ error: "boc required" }); return;
+  }
+
+  const user = verifyInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  await ensureStoreSchema();
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "DB not available" }); return; }
+
+  try {
+    const { pool, usersTable } = await import("@workspace/db");
+    const { eq, sql } = await import("drizzle-orm");
+
+    // Load product
+    const prodRes = await pool.query<{
+      id: number; name: string; coin_price: number; gram_value: number;
+      daily_mining_pct: number; is_enabled: boolean;
+    }>("SELECT * FROM gm_store_products WHERE id=$1", [pid]);
+
+    if (!prodRes.rows.length || !prodRes.rows[0]!.is_enabled) {
+      res.status(404).json({ error: "Product not found or not available" }); return;
+    }
+    const product = prodRes.rows[0]!;
+
+    // Ensure user exists in DB (upsert with zero coins if missing)
+    await db
+      .insert(usersTable)
+      .values({ telegramId: user.id, firstName: user.first_name ?? '', coins: 0, balance: 0 })
+      .onConflictDoNothing();
+
+    // Credit coins = coinPrice (gram payment was made outside the app)
+    const [updated] = await db
+      .update(usersTable)
+      .set({ coins: sql`${usersTable.coins} + ${product.coin_price}` })
+      .where(eq(usersTable.telegramId, user.id))
+      .returning({ coins: usersTable.coins });
+
+    // Record purchase with boc as proof
+    const purchRes = await pool.query<{ id: number }>(
+      `INSERT INTO gm_store_purchases
+         (telegram_id, product_id, coins_paid, gram_value, daily_mining_pct, principal_remaining)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [user.id, product.id, product.coin_price, product.gram_value, product.daily_mining_pct, product.gram_value],
+    );
+
+    // Store boc for audit (best-effort — column may not exist yet)
+    pool.query(
+      `ALTER TABLE gm_store_purchases ADD COLUMN IF NOT EXISTS gram_tx_boc text`,
+    ).then(() =>
+      pool.query(
+        `UPDATE gm_store_purchases SET gram_tx_boc=$1 WHERE id=$2`,
+        [boc, purchRes.rows[0]?.id],
+      )
+    ).catch(() => {});
+
+    res.json({
+      ok: true,
+      purchaseId: purchRes.rows[0]?.id,
+      coins: updated?.coins ?? 0,
+      coinsAdded: product.coin_price,
+      product: { id: product.id, name: product.name, gramValue: product.gram_value },
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /store/gram-purchase failed");
     res.status(500).json({ error: "Internal error" });
   }
 });

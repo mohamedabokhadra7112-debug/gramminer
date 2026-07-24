@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { useMiners } from '@/context/MinersContext';
+import { useCoins } from '@/context/CoinsContext';
 import WalletModal from '@/components/WalletModal';
 import { ChevronDown } from 'lucide-react';
 import { formatGram } from '@/lib/utils';
@@ -12,8 +12,11 @@ export default function Dashboard() {
   const { holdingWallet, poolWallet, sessionEarnings, walletAddress, minerLevel, isClaiming, claimError, claimEarnings } = useWallet();
   const { user: tgUser, avatarUrl } = useTelegramUser();
   const { t } = useLanguage();
-  const { dailyProjection } = useMiners();
+  const { coins } = useCoins();
   const [showWallet, setShowWallet] = useState(false);
+
+  // Coin-based daily income: 700 coin = 1 gram, 5% daily → gram/day = coins/14000
+  const dailyIncome = coins > 0 ? Math.round((coins / 14_000) * 1_000_000) / 1_000_000 : 0;
   const [avatarFailed, setAvatarFailed] = useState(false);
 
   const userName    = tgUser?.first_name || 'Miner';
@@ -94,13 +97,13 @@ export default function Dashboard() {
               {formatGram(holdingWallet, 3)} gram
             </div>
           </div>
-          {/* Projected 24-hour earnings from owned miners */}
+          {/* Coin-based 24-hour mining projection */}
           <div className="flex-1 bg-secondary/50 backdrop-blur-sm border border-white/5 rounded-xl py-1.5 px-3 text-center">
             <div className="text-[10px] text-muted-foreground font-semibold mb-0.5">{t('dashboard_24h_label')}</div>
             <div className="text-sm font-bold text-success">
-              {dailyProjection > 0
-                ? `+${formatGram(dailyProjection, 4)} gram`
-                : '—'}
+              {dailyIncome > 0
+                ? `+${formatGram(dailyIncome, 4)} gram`
+                : coins > 0 ? `+${formatGram(coins / 14_000, 6)} gram` : '—'}
             </div>
           </div>
         </div>

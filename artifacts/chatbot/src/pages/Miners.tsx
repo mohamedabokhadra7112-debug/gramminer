@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, Zap, ShoppingBag, Package, CheckCircle2, Loader2 } from 'lucide-react';
+import { Clock, Zap, ShoppingBag, Package, CheckCircle2, Loader2, Wallet } from 'lucide-react';
 import { useCoins } from '@/context/CoinsContext';
 import { useWallet } from '@/context/WalletContext';
-import { useMiners } from '@/context/MinersContext';
 import { formatGram } from '@/lib/utils';
 import { getInitData, API_BASE, telegramApiPost } from '@/lib/telegramApi';
+import { useTonConnectUI } from '@tonconnect/ui-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface StoreProduct {
@@ -12,7 +12,8 @@ interface StoreProduct {
   name: string;
   description: string | null;
   coinPrice: number;
-  dailyRewardGram: number;
+  gramValue: number;
+  dailyMiningPct: number;
   isEnabled: boolean;
 }
 
@@ -21,17 +22,9 @@ interface UserPurchase {
   productId: number;
   productName: string;
   coinsPaid: number;
-  dailyRewardGram: number;
+  gramValue: number;
+  dailyMiningPct: number;
   purchasedAt: string;
-}
-
-interface MiningStatus {
-  isActive: boolean;
-  totalDailyReward: number;
-  canClaim: boolean;
-  remainingMs: number;
-  pendingGram: number;
-  lastClaimAt: string | null;
 }
 
 function formatCountdown(ms: number): string {
@@ -41,27 +34,21 @@ function formatCountdown(ms: number): string {
   return [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
 }
 
+// 700 coin = 1 gram (matches the mining formula)
+const COINS_PER_GRAM = 700;
+
 // ─── Main Miners/Store Page ───────────────────────────────────────────────────
 export default function Miners() {
-  const { coins } = useCoins();
-  const { addClickEarning } = useWallet();
-  const { canClaim: legacyCanClaim, totalPending: legacyPending, remainingMs: legacyRemainingMs, claimAll } = useMiners();
+  const { coins, refreshBalance } = useCoins();
+  const { walletAddress } = useWallet();
+  const [tonConnectUI] = useTonConnectUI();
 
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [purchases, setPurchases] = useState<UserPurchase[]>([]);
-  const [miningStatus, setMiningStatus] = useState<MiningStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState<number | null>(null);
-  const [claiming, setClaiming] = useState(false);
+  const [paying, setPaying] = useState<number | null>(null);   // gram payment in progress
   const [feedback, setFeedback] = useState<{ id: number; msg: string; ok: boolean } | null>(null);
-  const [statusMsg, setStatusMsg] = useState('');
-  const [now, setNow] = useState(() => Date.now());
-
-  // Tick for countdown
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   const loadData = useCallback(async () => {
     const initData = getInitData();
@@ -69,10 +56,9 @@ export default function Miners() {
     if (initData) headers['x-init-data'] = initData;
 
     try {
-      const [prodRes, purchRes, mineRes] = await Promise.all([
+      const [prodRes, purchRes] = await Promise.all([
         fetch(`${API_BASE}/api/store/products`, { headers }),
         initData ? fetch(`${API_BASE}/api/store/purchases`, { headers }) : Promise.resolve(null),
-        initData ? fetch(`${API_BASE}/api/telegram/mining/status`, { headers }) : Promise.resolve(null),
       ]);
 
       if (prodRes.ok) {
@@ -83,28 +69,22 @@ export default function Miners() {
         const data = await purchRes.json() as UserPurchase[];
         setPurchases(Array.isArray(data) ? data : []);
       }
-      if (mineRes && mineRes.ok) {
-        const data = await mineRes.json() as MiningStatus;
-        setMiningStatus(data);
-      }
     } catch { /* best-effort */ }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Buy with coins ────────────────────────────────────────────────────────
   const handleBuy = async (product: StoreProduct) => {
-    if (coins < product.coinPrice) {
-      setFeedback({ id: product.id, msg: `❌ رصيد coin غير كافٍ (تحتاج ${product.coinPrice})`, ok: false });
-      setTimeout(() => setFeedback(null), 3000);
-      return;
-    }
+    if (coins < product.coinPrice) return;
     setBuying(product.id);
     try {
       const data = await telegramApiPost<{ ok: boolean; message?: string }>('/store/purchase', { productId: product.id });
       if (data.ok) {
-        setFeedback({ id: product.id, msg: `✅ تم الشراء! ${data.message ?? ''}`, ok: true });
+        setFeedback({ id: product.id, msg: `✅ تم الشراء بنجاح!`, ok: true });
         await loadData();
+        await refreshBalance();
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -115,35 +95,64 @@ export default function Miners() {
     }
   };
 
-  const handleStoreClaim = async () => {
-    if (!miningStatus?.canClaim) return;
-    setClaiming(true);
+  // ── Pay with gram wallet (TON Connect) ───────────────────────────────────
+  const handleGramPay = async (product: StoreProduct) => {
+    setPaying(product.id);
+    setFeedback(null);
     try {
-      const data = await telegramApiPost<{ ok: boolean; gram?: number; message?: string }>('/telegram/mining/claim', {});
-      if (data.ok) {
-        setStatusMsg(`✅ استلمت ${(data.gram ?? 0).toFixed(4)} gram`);
+      // If no wallet connected, open TonConnect modal first
+      if (!tonConnectUI.connected) {
+        await tonConnectUI.openModal();
+        setPaying(null);
+        setFeedback({ id: product.id, msg: 'وصّل محفظتك أولاً ثم اضغط مرة ثانية', ok: false });
+        return;
+      }
+
+      // gramPrice = coinPrice / 700, in nanotons (1 gram = 1e9 nanotons on TON)
+      const gramPrice = product.coinPrice / COINS_PER_GRAM;
+      const nanotons  = BigInt(Math.round(gramPrice * 1e9));
+
+      // Owner/recipient address from env — falls back to zero address for preview
+      const toAddress = import.meta.env.VITE_OWNER_WALLET ?? '0:0000000000000000000000000000000000000000000000000000000000000000';
+
+      const result = await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + 600,
+        messages: [{
+          address: toAddress,
+          amount: nanotons.toString(),
+          payload: btoa(`store_purchase:${product.id}`),
+        }],
+      });
+
+      // Submit boc to backend — it will credit coins and record the purchase
+      const boc = result.boc;
+      const resp = await telegramApiPost<{ ok: boolean; coins?: number; message?: string }>(
+        '/store/gram-purchase',
+        { productId: product.id, boc },
+      );
+
+      if (resp.ok) {
+        setFeedback({ id: product.id, msg: `✅ تم الدفع! حصلت على ${product.coinPrice.toLocaleString()} coin`, ok: true });
         await loadData();
+        await refreshBalance();
+      } else {
+        setFeedback({ id: product.id, msg: `⚠️ المعاملة أُرسلت — جارٍ التحقق يدوياً`, ok: false });
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setStatusMsg(`❌ ${msg}`);
+      if (msg.includes('User rejected') || msg.includes('reject')) {
+        setFeedback({ id: product.id, msg: `❌ تم الإلغاء`, ok: false });
+      } else {
+        setFeedback({ id: product.id, msg: `❌ ${msg}`, ok: false });
+      }
     } finally {
-      setClaiming(false);
-      setTimeout(() => setStatusMsg(''), 3000);
+      setPaying(null);
+      setTimeout(() => setFeedback(null), 4000);
     }
   };
 
-  // Determine mining display: prefer store mining status if available and user has purchases
-  const hasPurchases = purchases.length > 0;
-  const storeIsActive = miningStatus?.isActive ?? false;
-  const storeCanClaim = miningStatus?.canClaim ?? false;
-  const storePending = miningStatus?.pendingGram ?? 0;
-  const storeRemaining = miningStatus
-    ? Math.max(0, miningStatus.remainingMs ?? 0)
-    : 0;
-
-  // Legacy miners (MinersContext) — shown only if user has no store purchases
-  const showLegacyClaim = !hasPurchases && legacyCanClaim && legacyPending > 0;
+  // Coin-based daily income displayed at top (matches WalletContext formula)
+  const dailyIncome = coins > 0 ? Math.round((coins / 14_000) * 1_000_000) / 1_000_000 : 0;
 
   return (
     <div className="min-h-full flex flex-col relative w-full px-4 pt-5">
@@ -159,93 +168,25 @@ export default function Miners() {
           </div>
         </div>
 
-        {/* Mining Status Panel */}
-        {(hasPurchases || storeIsActive) ? (
-          <div className="bg-secondary/50 border border-white/10 rounded-2xl p-3 flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              {storeCanClaim ? (
-                storePending > 0 ? (
-                  <>
-                    <div className="text-green-400 font-bold text-sm">
-                      +{formatGram(storePending, 4)} gram جاهز للاستلام!
-                    </div>
-                    <div className="text-gray-400 text-xs mt-0.5">دورة التعدين اكتملت</div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-gray-300 font-semibold text-sm">التعدين نشط</div>
-                    <div className="text-gray-500 text-xs">+{formatGram(miningStatus?.totalDailyReward ?? 0, 4)} gram/24h</div>
-                  </>
-                )
-              ) : (
-                <>
-                  <div className="flex items-center gap-1.5 text-white font-bold text-sm">
-                    <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                    <span className="font-mono">{formatCountdown(storeRemaining)}</span>
-                  </div>
-                  <div className="text-gray-400 text-xs mt-0.5">حتى الدورة التالية · {formatGram(miningStatus?.totalDailyReward ?? 0, 4)} gram/24h</div>
-                </>
-              )}
+        {/* Mining summary panel */}
+        <div className="bg-secondary/50 border border-white/10 rounded-2xl p-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className={`font-bold text-sm ${coins > 0 ? 'text-green-400' : 'text-gray-400'}`}>
+                {coins > 0 ? '🟢 التعدين نشط' : '🔴 لا يوجد تعدين'}
+              </div>
+              <div className="text-gray-400 text-xs mt-0.5">
+                {coins > 0
+                  ? `+${formatGram(dailyIncome, 6)} gram / 24h`
+                  : 'اشترِ coin لبدء التعدين'}
+              </div>
             </div>
-            <button
-              onClick={handleStoreClaim}
-              disabled={!storeCanClaim || storePending <= 0 || claiming}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all ${
-                storeCanClaim && storePending > 0
-                  ? 'bg-green-500 text-black shadow-[0_0_12px_rgba(34,197,94,0.4)] hover:opacity-90 active:scale-95'
-                  : 'bg-gray-700/60 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              {claiming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'استلام'}
-            </button>
-          </div>
-        ) : (
-          /* Legacy miners claim panel — only when user has no store purchases */
-          <div className="bg-secondary/50 border border-white/10 rounded-2xl p-3 flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              {showLegacyClaim ? (
-                <>
-                  <div className="text-green-400 font-bold text-sm">
-                    +{formatGram(legacyPending, 2)} gram جاهز!
-                  </div>
-                  <div className="text-gray-400 text-xs mt-0.5">من أجهزة التعدين القديمة</div>
-                </>
-              ) : legacyPending <= 0 ? (
-                <>
-                  <div className="text-gray-300 font-semibold text-sm">لا يوجد تعدين نشط</div>
-                  <div className="text-gray-500 text-xs">اشتر منتجاً من المتجر للبدء</div>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-1.5 text-white font-bold text-sm">
-                    <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                    <span className="font-mono">{formatCountdown(legacyRemainingMs)}</span>
-                  </div>
-                  <div className="text-gray-400 text-xs mt-0.5">حتى دورة التعدين التالية</div>
-                </>
-              )}
+            <div className="text-right">
+              <div className="text-white text-xs font-semibold">{coins.toLocaleString()} coin</div>
+              <div className="text-gray-500 text-[10px]">5% يومياً ÷ 700</div>
             </div>
-            <button
-              onClick={() => { if (showLegacyClaim) claimAll(addClickEarning); }}
-              disabled={!showLegacyClaim}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all ${
-                showLegacyClaim
-                  ? 'bg-green-500 text-black shadow-[0_0_12px_rgba(34,197,94,0.4)] hover:opacity-90 active:scale-95'
-                  : 'bg-gray-700/60 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              استلام
-            </button>
           </div>
-        )}
-
-        {statusMsg && (
-          <div className={`mt-2 text-xs text-center font-medium px-2 py-1 rounded-lg ${
-            statusMsg.startsWith('✅') ? 'text-green-400 bg-green-500/10' : 'text-red-400 bg-red-500/10'
-          }`}>
-            {statusMsg}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* ── My Purchases ── */}
@@ -261,9 +202,9 @@ export default function Miners() {
                   <CheckCircle2 className="w-5 h-5 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-white font-bold text-sm truncate">{p.productName}</div>
-                  <div className="text-green-400 text-xs">{formatGram(p.dailyRewardGram, 4)} gram/24h</div>
-                  <div className="text-white/40 text-[10px]">{new Date(p.purchasedAt).toLocaleDateString('ar')} · {p.coinsPaid.toLocaleString()} coin</div>
+                  <div className="text-white font-bold text-sm truncate">{p.productName ?? `باقة #${p.productId}`}</div>
+                  <div className="text-green-400 text-xs">{p.coinsPaid.toLocaleString()} coin · {formatGram(p.gramValue, 1)} gram</div>
+                  <div className="text-white/40 text-[10px]">{new Date(p.purchasedAt).toLocaleDateString('ar')}</div>
                 </div>
               </div>
             ))}
@@ -291,9 +232,12 @@ export default function Miners() {
 
         <div className="space-y-3">
           {products.map(product => {
-            const canAfford = coins >= product.coinPrice;
-            const fb = feedback?.id === product.id ? feedback : null;
-            const isBuying = buying === product.id;
+            const canAfford  = coins >= product.coinPrice;
+            const gramPrice  = product.coinPrice / COINS_PER_GRAM;
+            const fb         = feedback?.id === product.id ? feedback : null;
+            const isBuying   = buying === product.id;
+            const isPaying   = paying === product.id;
+            const hasWallet  = !!walletAddress || tonConnectUI.connected;
 
             return (
               <div
@@ -302,54 +246,65 @@ export default function Miners() {
                   canAfford ? 'border-primary/30' : 'border-white/10'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-start gap-3">
                   {/* Icon */}
-                  <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                    <ShoppingBag className="w-7 h-7 text-primary" />
+                  <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0 text-3xl">
+                    {product.name.split(' ')[0]}
                   </div>
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="text-white font-bold text-sm leading-tight">{product.name}</div>
-                    {product.description && (
-                      <div className="text-white/50 text-xs mt-0.5 truncate">{product.description}</div>
-                    )}
-                    <div className="text-green-400 text-xs font-semibold mt-0.5">
-                      +{formatGram(product.dailyRewardGram, 4)} gram / 24h
-                    </div>
-                    <div className="text-xs text-white/40 mt-0.5">
-                      التعدين: 5% يومياً
-                    </div>
-                  </div>
-
-                  {/* Buy button */}
-                  <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                    <div className="text-yellow-400 text-xs font-bold">
-                      {product.coinPrice.toLocaleString()} coin
-                    </div>
-                    <button
-                      onClick={() => handleBuy(product)}
-                      disabled={isBuying || !canAfford}
-                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-                        !canAfford
-                          ? 'bg-gray-700/60 text-gray-500 cursor-not-allowed'
-                          : 'bg-primary text-black shadow-[0_0_10px_rgba(245,166,35,0.3)] hover:opacity-90'
-                      }`}
-                    >
-                      {isBuying ? <Loader2 className="w-3 h-3 animate-spin" /> : '🛒 شراء'}
-                    </button>
-                    {!canAfford && (
-                      <span className="text-[10px] text-gray-500">
-                        تحتاج {(product.coinPrice - coins).toLocaleString()} coin أكثر
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-yellow-400 text-xs font-bold">
+                        🪙 {product.coinPrice.toLocaleString()} coin
                       </span>
-                    )}
+                      <span className="text-white/30 text-xs">أو</span>
+                      <span className="text-blue-400 text-xs font-bold">
+                        💎 {gramPrice % 1 === 0 ? gramPrice : gramPrice.toFixed(2)} gram
+                      </span>
+                    </div>
+                    <div className="text-green-400 text-[11px] mt-0.5">
+                      +{formatGram(product.gramValue * (product.dailyMiningPct ?? 0.05), 4)} gram / يوم
+                    </div>
                   </div>
+                </div>
+
+                {/* Buy buttons */}
+                <div className="mt-3 flex gap-2">
+                  {/* Pay with coins */}
+                  <button
+                    onClick={() => handleBuy(product)}
+                    disabled={isBuying || isPaying || !canAfford}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 ${
+                      canAfford && !isPaying
+                        ? 'bg-primary text-black shadow-[0_0_10px_rgba(245,166,35,0.3)] hover:opacity-90'
+                        : 'bg-gray-700/60 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {isBuying
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : <><Zap className="w-3 h-3" /> {canAfford ? 'شراء بـ Coin' : `ناقص ${(product.coinPrice - coins).toLocaleString()}`}</>
+                    }
+                  </button>
+
+                  {/* Pay with gram wallet */}
+                  <button
+                    onClick={() => handleGramPay(product)}
+                    disabled={isBuying || isPaying}
+                    className="flex-1 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 bg-blue-600/80 text-white hover:bg-blue-500/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isPaying
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : <><Wallet className="w-3 h-3" /> {hasWallet ? `دفع ${gramPrice % 1 === 0 ? gramPrice : gramPrice.toFixed(2)} gram` : 'وصّل محفظة'}</>
+                    }
+                  </button>
                 </div>
 
                 {/* Feedback */}
                 {fb && (
                   <div className={`mt-2 text-xs font-medium px-2 py-1 rounded-lg ${
-                    fb.ok ? 'text-success bg-success/10' : 'text-red-400 bg-red-500/10'
+                    fb.ok ? 'text-success bg-success/10' : 'text-yellow-400 bg-yellow-500/10'
                   }`}>
                     {fb.msg}
                   </div>
@@ -363,14 +318,14 @@ export default function Miners() {
       {/* ── Info footer ── */}
       <div className="relative z-10 mb-4 rounded-2xl bg-black/50 border border-white/10 p-4">
         <div className="grid grid-cols-2 gap-y-2 text-xs text-gray-400">
-          <span>سعر التحويل</span>
+          <span>معادلة التحويل</span>
           <span className="text-right font-bold text-primary">700 coin = 1 gram</span>
           <span>معدل التعدين</span>
-          <span className="text-right text-green-400">5% يومياً</span>
-          <span>دورة التعدين</span>
-          <span className="text-right text-gray-300">كل 24 ساعة</span>
-          <span>شرط البدء</span>
-          <span className="text-right text-blue-400">يجب امتلاك coin أولاً</span>
+          <span className="text-right text-green-400">5% يومياً من الـ coin</span>
+          <span>0 coin</span>
+          <span className="text-right text-red-400">= 0 تعدين</span>
+          <span>طريقة الدفع</span>
+          <span className="text-right text-blue-400">Coin أو Gram Wallet</span>
         </div>
       </div>
     </div>

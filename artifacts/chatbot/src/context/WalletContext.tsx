@@ -144,13 +144,32 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (isVerified) fetchReferrals();
   }, [isVerified, fetchReferrals]);
 
-  // Passive earnings: +0.001 gram / second
-  // Round to 6 d.p. at each tick to prevent IEEE-754 drift accumulating into
-  // a distorted floating-point string (e.g. "0.026000000000000002").
+  // Passive earnings — coin-based mining:
+  //   daily_income (gram) = coins / 14_000   (700 coin = 1 gram, 5 % daily)
+  //   per-second          = daily / 86_400
+  //   0 coins → 0 mining (no tick increments balance)
+  //
+  // Coins are read from localStorage each tick to avoid a circular
+  // context dependency (CoinsContext → WalletContext → CoinsContext).
+  // CoinsContext writes per-user keys of the form `gram_coins_balance_<tgId>`.
+  function getCoinsFromStorage(): number {
+    try {
+      const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+      const key = tgId ? `gram_coins_balance_${tgId}` : 'gram_coins_balance';
+      const val = localStorage.getItem(key);
+      return val !== null ? Math.max(0, Number(val) || 0) : 0;
+    } catch { return 0; }
+  }
+
   useEffect(() => {
     const interval = setInterval(() => {
-      setSessionEarnings(prev => Math.round((prev + 0.001) * 1_000_000) / 1_000_000);
-    }, 1000);
+      const coins = getCoinsFromStorage();
+      if (coins <= 0) return; // 0 coins = no mining
+      const perSecond = coins / 14_000 / 86_400;
+      setSessionEarnings(prev =>
+        Math.round((prev + perSecond) * 1_000_000_000) / 1_000_000_000,
+      );
+    }, 1_000);
     return () => clearInterval(interval);
   }, []);
 
