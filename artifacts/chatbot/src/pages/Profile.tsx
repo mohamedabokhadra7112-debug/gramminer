@@ -71,7 +71,7 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.97)' }}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-8 pb-4 border-b border-white/10">
         <button
@@ -278,7 +278,7 @@ function DepositPanel({ onClose }: { onClose: () => void }) {
     s === 'confirmed' ? '✅ مؤكد' : s === 'rejected' ? '❌ مرفوض' : '⏳ قيد المراجعة';
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.97)' }}>
       <div className="flex items-center gap-3 px-4 pt-8 pb-4 border-b border-white/10">
         <button onClick={onClose} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors text-lg font-bold">‹</button>
         <h2 className="text-lg font-black text-white">إيداع gram</h2>
@@ -429,7 +429,7 @@ function WithdrawPanel({ onClose }: { onClose: () => void }) {
     s === 'approved' ? '✅ تمت الموافقة' : s === 'rejected' ? '❌ مرفوض' : '⏳ قيد المراجعة';
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.97)' }}>
       <div className="flex items-center gap-3 px-4 pt-8 pb-4 border-b border-white/10">
         <button onClick={onClose} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors text-lg font-bold">‹</button>
         <h2 className="text-lg font-black text-white">سحب gram</h2>
@@ -651,7 +651,7 @@ export default function Profile() {
 
       {/* ── Settings Panel ── */}
       {showSettings && (
-        <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.90)' }}>
+        <div className="fixed inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.97)' }}>
           <div className="flex items-center gap-3 px-4 pt-8 pb-4 border-b border-white/10">
             <button
               onClick={() => setShowSettings(false)}
