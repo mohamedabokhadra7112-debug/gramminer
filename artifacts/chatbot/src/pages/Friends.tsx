@@ -1,10 +1,27 @@
-import { Users, Copy, Share2, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Users, Copy, Share2, CheckCircle2, RefreshCw, Gift, Star } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { API_BASE, getInitData } from '@/lib/telegramApi';
 
 const BOT_USERNAME = 'GramCoin11_bot';
+
+interface Milestone {
+  id: number;
+  inviteCount: number;
+  rewardCoins: number;
+  isEnabled: boolean;
+  reached: boolean;
+  credited: boolean;
+}
+
+interface ReferralData {
+  count: number;
+  reward: number;
+  milestones: Milestone[];
+  progress: number;
+}
 
 export default function Friends() {
   const { referralCode, referralCount, referralBalance, refreshReferrals } = useWallet();
@@ -12,8 +29,25 @@ export default function Friends() {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [milestoneData, setMilestoneData] = useState<ReferralData | null>(null);
 
   const referralLink = `https://t.me/${BOT_USERNAME}?start=${tgUser?.id ?? referralCode}`;
+
+  const loadMilestones = useCallback(async () => {
+    const initData = getInitData();
+    if (!initData) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/telegram/referrals`, {
+        headers: { 'x-init-data': initData },
+      });
+      if (res.ok) {
+        const data = await res.json() as ReferralData;
+        setMilestoneData(data);
+      }
+    } catch { /* best-effort */ }
+  }, []);
+
+  useEffect(() => { loadMilestones(); }, [loadMilestones]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink).catch(() => {});
@@ -35,6 +69,7 @@ export default function Friends() {
   const handleRefresh = async () => {
     setRefreshing(true);
     refreshReferrals();
+    await loadMilestones();
     setTimeout(() => setRefreshing(false), 1500);
   };
 
@@ -44,6 +79,11 @@ export default function Friends() {
     t('friends_step3'),
     t('friends_step4'),
   ];
+
+  const displayCount = milestoneData?.count ?? referralCount;
+  const displayReward = milestoneData?.reward ?? referralBalance;
+  const milestones = milestoneData?.milestones ?? [];
+  const progress = milestoneData?.progress ?? 0;
 
   return (
     <div className="min-h-full flex flex-col relative w-full px-4 pt-6">
@@ -68,14 +108,70 @@ export default function Friends() {
       {/* Stats */}
       <div className="relative z-10 flex gap-3 mb-4">
         <div className="flex-1 rounded-2xl p-4 text-center border border-white/10" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
-          <div className="text-2xl font-black text-white">{referralCount}</div>
+          <div className="text-2xl font-black text-white">{displayCount}</div>
           <div className="text-xs text-white/70 mt-1 font-semibold">{t('friends_total_referrals')}</div>
         </div>
         <div className="flex-1 rounded-2xl p-4 text-center border border-primary/30" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
-          <div className="text-2xl font-black text-primary">{referralBalance.toFixed(4)}</div>
+          <div className="text-2xl font-black text-primary">{Number(displayReward).toFixed(4)}</div>
           <div className="text-xs text-white/70 mt-1 font-semibold">{t('friends_gmr_rewards')}</div>
         </div>
       </div>
+
+      {/* Milestone Cards */}
+      {milestones.length > 0 && (
+        <div className="relative z-10 mb-4">
+          <h3 className="text-sm font-black text-white/80 mb-3 flex items-center gap-2">
+            <Star className="w-4 h-4 text-primary" />
+            مراحل المكافآت
+          </h3>
+          <div className="space-y-2">
+            {milestones.filter(m => m.isEnabled).map(m => {
+              const progressPct = Math.min(100, (displayCount / m.inviteCount) * 100);
+              return (
+                <div
+                  key={m.id}
+                  className={`rounded-2xl p-3 border flex items-center gap-3 ${
+                    m.credited
+                      ? 'bg-success/10 border-success/30'
+                      : m.reached
+                      ? 'bg-primary/10 border-primary/30'
+                      : 'bg-white/5 border-white/10'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    m.credited ? 'bg-success/20' : m.reached ? 'bg-primary/20' : 'bg-white/10'
+                  }`}>
+                    <Gift className={`w-5 h-5 ${m.credited ? 'text-success' : m.reached ? 'text-primary' : 'text-white/40'}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-bold text-white">
+                        {m.inviteCount} دعوة
+                      </span>
+                      <span className={`text-xs font-black ${m.credited ? 'text-success' : m.reached ? 'text-primary' : 'text-white/60'}`}>
+                        +{m.rewardCoins} coin
+                      </span>
+                    </div>
+                    <div className="w-full bg-black/40 rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${m.credited ? 'bg-success' : 'bg-primary'}`}
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    <div className="text-[10px] text-white/50 mt-0.5">
+                      {m.credited
+                        ? '✅ تم استلام المكافأة'
+                        : m.reached
+                        ? '🎉 وصلت! جارٍ الإضافة...'
+                        : `${displayCount}/${m.inviteCount} مدعو`}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Invite Card */}
       <div className="relative z-10 backdrop-blur-sm border border-white/10 rounded-3xl p-5 mb-4" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
@@ -133,9 +229,9 @@ export default function Friends() {
       {/* Friends List */}
       <div className="relative z-10 flex-1 pb-8">
         <h3 className="text-xs font-black text-white/60 mb-3 tracking-widest">
-          {t('friends_your_friends', { count: String(referralCount) })}
+          {t('friends_your_friends', { count: String(displayCount) })}
         </h3>
-        {referralCount === 0 ? (
+        {displayCount === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 rounded-2xl border border-white/10 border-dashed" style={{ backgroundColor: 'rgba(0,0,0,0.40)' }}>
             <Users className="w-8 h-8 text-white/30 mb-2" />
             <p className="text-sm font-medium text-white/60">{t('friends_no_friends')}</p>
@@ -143,7 +239,7 @@ export default function Friends() {
           </div>
         ) : (
           <div className="space-y-2">
-            {Array.from({ length: referralCount }, (_, i) => (
+            {Array.from({ length: displayCount }, (_, i) => (
               <div key={i} className="border border-white/10 rounded-xl p-3 flex items-center justify-between" style={{ backgroundColor: 'rgba(0,0,0,0.50)' }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">

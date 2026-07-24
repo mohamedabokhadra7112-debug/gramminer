@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
 import { verifyInitData } from "../lib/telegramAuth";
 import { getDb } from "../lib/db";
+import { creditNewMilestones } from "./referrals";
 
 const router: IRouter = Router();
 
@@ -676,48 +677,7 @@ router.get("/telegram/setup", async (_req, res) => {
   res.status(200).json({ ok: true, webhook: data, webhookUrl });
 });
 
-// Returns referral stats for the current user.
-router.get("/telegram/referrals", async (req, res): Promise<void> => {
-  const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
-
-  const initData = req.headers["x-init-data"] as string | undefined;
-  if (!initData) { res.status(400).json({ error: "x-init-data required" }); return; }
-
-  const user = verifyInitData(initData, token);
-  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
-
-  try {
-    const { pool } = await import("@workspace/db");
-    // Ensure tables exist
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS gm_referrals (
-        id serial PRIMARY KEY, referrer_id bigint NOT NULL,
-        referred_id bigint NOT NULL UNIQUE, reward_paid boolean NOT NULL DEFAULT false,
-        created_at timestamp NOT NULL DEFAULT NOW()
-      )
-    `).catch(() => {});
-    const result = await pool.query(
-      "SELECT COUNT(*) AS count FROM gm_referrals WHERE referrer_id=$1",
-      [user.id],
-    );
-    const count = Number(result.rows[0]?.count ?? 0);
-    // Read referral_price from settings, fall back to 1
-    let referralPrice = 1;
-    try {
-      const db2 = await getDb();
-      if (db2) {
-        const { settingsTable } = await import("@workspace/db");
-        const { eq: eqS } = await import("drizzle-orm");
-        const [priceRow] = await db2.select().from(settingsTable).where(eqS(settingsTable.key, "referral_price"));
-        if (priceRow?.value) referralPrice = Number(priceRow.value) || 1;
-      }
-    } catch { /* use default */ }
-    res.json({ count, reward: +(count * referralPrice).toFixed(4) });
-  } catch {
-    res.json({ count: 0, reward: 0 });
-  }
-});
+// /telegram/referrals is handled by referrals.ts (enriched with milestones + progress)
 
 // Save / update wallet address for the current user — with uniqueness check.
 router.post("/telegram/wallet", async (req, res): Promise<void> => {
@@ -1442,6 +1402,10 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
                   } catch (notifyErr) {
                     logger.warn({ notifyErr, referrerId }, "Referral notification failed (non-fatal)");
                   }
+                  // Credit any newly reached referral milestones (fire-and-forget)
+                  creditNewMilestones(referrerId).catch(e =>
+                    logger.warn({ e, referrerId }, "creditNewMilestones failed (non-fatal)"),
+                  );
                 }
               }
             } catch (e) {

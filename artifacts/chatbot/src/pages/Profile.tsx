@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Settings, ArrowLeftRight, ChevronRight, Check, ArrowDown, ArrowUp, Wallet, ExternalLink, Clock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, ArrowLeftRight, ChevronRight, Check, ArrowUp, ArrowDown, Wallet, Clock } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage, SUPPORTED_LANGUAGES, type Lang } from '@/context/LanguageContext';
@@ -7,26 +7,67 @@ import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
 import WalletModal from '@/components/WalletModal';
 
 // ─── Swap Panel ───────────────────────────────────────────────────────────────
-const GRAM_PER_TON = 700; // 700 gram = 1 TON
-
 function SwapPanel({ onClose }: { onClose: () => void }) {
   const { holdingWallet, sessionEarnings } = useWallet();
-  const totalGmr = holdingWallet + sessionEarnings;
+  const totalGram = holdingWallet + sessionEarnings;
 
-  const [direction, setDirection] = useState<'gram_to_ton' | 'ton_to_gram'>('gram_to_ton');
-  const [inputVal, setInputVal]   = useState('');
+  const [direction, setDirection] = useState<'gram_to_coins' | 'coins_to_gram'>('gram_to_coins');
+  const [inputVal, setInputVal] = useState('');
+  const [rate, setRate] = useState<{ gramToCoins: number; coinsToGram: number } | null>(null);
+  const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'ok' | 'err'; msg: string }>({ type: 'idle', msg: '' });
+  const [history, setHistory] = useState<{ id: number; direction: string; fromAmount: number; toAmount: number; createdAt: string }[]>([]);
 
-  const fromLabel = direction === 'gram_to_ton' ? 'gram' : 'TON';
-  const toLabel   = direction === 'gram_to_ton' ? 'TON' : 'gram';
+  useEffect(() => {
+    // Load swap rate from admin settings
+    const initData = getInitData();
+    if (!initData) { setRate({ gramToCoins: 700, coinsToGram: 700 }); return; }
+    fetch(`${API_BASE}/api/telegram/swap/rate`, { headers: { 'x-init-data': initData } })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { gramToCoins?: number; coinsToGram?: number } | null) => {
+        if (d) setRate({ gramToCoins: d.gramToCoins ?? 700, coinsToGram: d.coinsToGram ?? 700 });
+        else setRate({ gramToCoins: 700, coinsToGram: 700 });
+      })
+      .catch(() => setRate({ gramToCoins: 700, coinsToGram: 700 }));
+
+    // Load swap history
+    fetch(`${API_BASE}/api/telegram/swap/history`, { headers: { 'x-init-data': initData } })
+      .then(r => r.ok ? r.json() : [])
+      .then((d: { id: number; direction: string; fromAmount: number; toAmount: number; createdAt: string }[]) => {
+        if (Array.isArray(d)) setHistory(d);
+      })
+      .catch(() => {});
+  }, []);
+
+  const gramToCoinsRate = rate?.gramToCoins ?? 700;
+  const coinsToGramRate = rate?.coinsToGram ?? 700;
+
+  const fromLabel = direction === 'gram_to_coins' ? 'gram' : 'coin';
+  const toLabel = direction === 'gram_to_coins' ? 'coin' : 'gram';
 
   const inputNum = parseFloat(inputVal) || 0;
-  const outputNum = direction === 'gram_to_ton'
-    ? inputNum / GRAM_PER_TON
-    : inputNum * GRAM_PER_TON;
+  const outputNum = direction === 'gram_to_coins'
+    ? inputNum * gramToCoinsRate
+    : inputNum / coinsToGramRate;
 
-  const rate = direction === 'gram_to_ton'
-    ? `1 TON = ${GRAM_PER_TON} gram`
-    : `1 gram = ${(1 / GRAM_PER_TON).toFixed(4)} TON`;
+  const rateDisplay = direction === 'gram_to_coins'
+    ? `1 gram = ${gramToCoinsRate} coin`
+    : `${coinsToGramRate} coin = 1 gram`;
+
+  const handleSwap = async () => {
+    if (!inputNum || inputNum <= 0) return;
+    setStatus({ type: 'loading', msg: '' });
+    try {
+      const data = await telegramApiPost<{ ok: boolean; message?: string }>('/telegram/swap', {
+        direction,
+        amount: inputNum,
+      });
+      setStatus({ type: 'ok', msg: data.message || '✅ تم التحويل بنجاح' });
+      setInputVal('');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatus({ type: 'err', msg: `❌ ${msg}` });
+    }
+  };
 
   return (
     <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
@@ -36,23 +77,23 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
           onClick={onClose}
           className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors text-lg font-bold"
         >‹</button>
-        <h2 className="text-lg font-black text-white">Swap</h2>
+        <h2 className="text-lg font-black text-white">Swap gram ⇄ coin</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pt-6 space-y-4">
         {/* Rate info */}
         <div className="bg-primary/10 border border-primary/30 rounded-2xl p-4 text-center">
-          <div className="text-primary font-black text-lg">{rate}</div>
-          <div className="text-xs text-white/60 mt-1">سعر التحويل الثابت</div>
+          <div className="text-primary font-black text-lg">{rateDisplay}</div>
+          <div className="text-xs text-white/60 mt-1">سعر التحويل</div>
         </div>
 
         {/* From */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted-foreground font-bold uppercase">من</span>
-            <span className="text-xs text-muted-foreground">
-              {direction === 'gram_to_ton' ? `الرصيد: ${totalGmr.toFixed(4)} gram` : ''}
-            </span>
+            {direction === 'gram_to_coins' && (
+              <span className="text-xs text-muted-foreground">الرصيد: {totalGram.toFixed(4)} gram</span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <input
@@ -73,8 +114,9 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
         <div className="flex justify-center">
           <button
             onClick={() => {
-              setDirection(d => d === 'gram_to_ton' ? 'ton_to_gram' : 'gram_to_ton');
+              setDirection(d => d === 'gram_to_coins' ? 'coins_to_gram' : 'gram_to_coins');
               setInputVal('');
+              setStatus({ type: 'idle', msg: '' });
             }}
             className="w-11 h-11 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary hover:bg-primary/30 transition-colors"
           >
@@ -87,7 +129,7 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
           <div className="text-xs text-muted-foreground font-bold uppercase">إلى</div>
           <div className="flex items-center gap-3">
             <div className="flex-1 text-2xl font-black text-white/70">
-              {outputNum > 0 ? outputNum.toFixed(6) : '0.00'}
+              {outputNum > 0 ? (direction === 'gram_to_coins' ? Math.floor(outputNum) : outputNum.toFixed(6)) : '0.00'}
             </div>
             <div className="bg-white/10 border border-white/20 rounded-xl px-3 py-1.5">
               <span className="text-white font-black text-sm">{toLabel}</span>
@@ -95,18 +137,168 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {/* Status */}
+        {status.msg && (
+          <div className={`text-sm font-medium text-center p-3 rounded-xl ${
+            status.type === 'ok' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+            status.type === 'err' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : ''
+          }`}>
+            {status.msg}
+          </div>
+        )}
+
+        {/* Confirm button */}
+        <button
+          onClick={handleSwap}
+          disabled={status.type === 'loading' || !inputNum || inputNum <= 0}
+          className="w-full py-4 rounded-2xl bg-primary text-black font-black text-base disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
+        >
+          {status.type === 'loading' ? '⏳ جار التحويل...' : `🔄 تحويل ${fromLabel} إلى ${toLabel}`}
+        </button>
+
+        {/* History */}
+        {history.length > 0 && (
+          <div className="space-y-2 pb-4">
+            <div className="text-xs text-muted-foreground font-bold uppercase tracking-widest">سجل التحويلات</div>
+            {history.map(h => (
+              <div key={h.id} className="bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-white text-sm">
+                    {h.direction === 'gram_to_coins' ? `${h.fromAmount} gram → ${Math.floor(h.toAmount)} coin` : `${h.fromAmount} coin → ${h.toAmount.toFixed(6)} gram`}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{new Date(h.createdAt).toLocaleDateString('ar')}</div>
+                </div>
+                <ArrowLeftRight className="w-4 h-4 text-primary" />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Deposit Panel ────────────────────────────────────────────────────────────
+function DepositPanel({ onClose }: { onClose: () => void }) {
+  const [txHash, setTxHash] = useState('');
+  const [amount, setAmount] = useState('');
+  const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'ok' | 'err'; msg: string }>({ type: 'idle', msg: '' });
+  const [history, setHistory] = useState<{ id: number; amount: number; status: string; created_at: string; tx_hash: string | null }[]>([]);
+
+  useEffect(() => {
+    const initData = getInitData();
+    if (!initData) return;
+    fetch(`${API_BASE}/api/telegram/deposit/status`, { headers: { 'x-init-data': initData } })
+      .then(r => r.ok ? r.json() : [])
+      .then((d: { id: number; amount: number; status: string; created_at: string; tx_hash: string | null }[]) => {
+        if (Array.isArray(d)) setHistory(d);
+      })
+      .catch(() => {});
+  }, []);
+
+  const submit = async () => {
+    if (!txHash.trim()) return;
+    setStatus({ type: 'loading', msg: '' });
+    try {
+      const data = await telegramApiPost<{ ok: boolean; message: string }>('/telegram/deposit/submit', {
+        txHash: txHash.trim(),
+        amount: parseFloat(amount) || undefined,
+      });
+      setStatus({ type: 'ok', msg: data.message || '✅ تم إرسال طلب الإيداع للمراجعة' });
+      setTxHash('');
+      setAmount('');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatus({ type: 'err', msg: `❌ ${msg}` });
+    }
+  };
+
+  const statusColor = (s: string) =>
+    s === 'approved' ? 'text-green-400' : s === 'rejected' ? 'text-red-400' : 'text-yellow-400';
+  const statusLabel = (s: string) =>
+    s === 'approved' ? '✅ تمت الموافقة' : s === 'rejected' ? '❌ مرفوض' : '⏳ قيد المراجعة';
+
+  return (
+    <div className="absolute inset-0 z-50 flex flex-col" style={{ backgroundColor: 'rgba(0,0,0,0.92)' }}>
+      <div className="flex items-center gap-3 px-4 pt-8 pb-4 border-b border-white/10">
+        <button onClick={onClose} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors text-lg font-bold">‹</button>
+        <h2 className="text-lg font-black text-white">إيداع gram</h2>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pt-6 space-y-4">
         {/* Info */}
-        <div className="text-center text-xs text-white/40 px-2">
-          الـ Swap قيد التطوير. سيتم تفعيل التحويل الفعلي قريباً بعد إعداد المحفظة.
+        <div className="bg-primary/10 border border-primary/30 rounded-2xl p-4">
+          <div className="text-xs text-white/60 mb-1 font-bold">كيفية الإيداع</div>
+          <div className="text-sm text-white/80 leading-relaxed">
+            أرسل gram إلى محفظة البوت، ثم أدخل رقم المعاملة (TX Hash) هنا للتحقق والإضافة لرصيدك.
+          </div>
         </div>
 
-        {/* Confirm button (disabled until active) */}
+        {/* TX Hash input */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+          <div className="text-xs text-muted-foreground font-bold uppercase">رقم المعاملة (TX Hash)</div>
+          <input
+            type="text"
+            value={txHash}
+            onChange={e => setTxHash(e.target.value)}
+            placeholder="أدخل رقم المعاملة..."
+            className="w-full bg-transparent text-sm font-mono text-white outline-none"
+            dir="ltr"
+          />
+        </div>
+
+        {/* Amount input */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+          <div className="text-xs text-muted-foreground font-bold uppercase">مبلغ الإيداع (gram) — اختياري</div>
+          <input
+            type="number"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            placeholder="0.00"
+            className="w-full bg-transparent text-2xl font-black text-white outline-none"
+            dir="ltr"
+          />
+        </div>
+
+        {/* Status message */}
+        {status.msg && (
+          <div className={`text-sm font-medium text-center p-3 rounded-xl ${
+            status.type === 'ok' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+            status.type === 'err' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : ''
+          }`}>
+            {status.msg}
+          </div>
+        )}
+
+        {/* Submit */}
         <button
-          disabled
-          className="w-full py-4 rounded-2xl bg-primary/30 text-primary/50 font-black text-base cursor-not-allowed"
+          onClick={submit}
+          disabled={status.type === 'loading' || !txHash.trim()}
+          className="w-full py-4 rounded-2xl bg-primary text-black font-black text-base disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
         >
-          قريباً — Swap
+          {status.type === 'loading' ? '⏳ جار الإرسال...' : '📥 إرسال طلب الإيداع'}
         </button>
+
+        {/* History */}
+        {history.length > 0 && (
+          <div className="space-y-2 pb-4">
+            <div className="text-xs text-muted-foreground font-bold uppercase tracking-widest">سجل الإيداعات</div>
+            {history.map(h => (
+              <div key={h.id} className="bg-black/40 border border-white/5 rounded-xl p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-bold text-white text-sm">{Number(h.amount).toFixed(4)} gram</div>
+                    <div className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleDateString('ar')}</div>
+                    {h.tx_hash && (
+                      <div className="text-[10px] font-mono text-white/40 mt-0.5 truncate max-w-[160px]">{h.tx_hash}</div>
+                    )}
+                  </div>
+                  <div className={`text-xs font-bold ${statusColor(h.status)}`}>{statusLabel(h.status)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -119,15 +311,16 @@ function WithdrawPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'ok' | 'err'; msg: string }>({ type: 'idle', msg: '' });
   const [history, setHistory] = useState<{ id: number; amount: number; status: string; created_at: string }[]>([]);
 
-  // Load withdrawal history
-  useState(() => {
+  useEffect(() => {
     const initData = getInitData();
     if (!initData) return;
     fetch(`${API_BASE}/api/telegram/withdraw/status`, { headers: { 'x-init-data': initData } })
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setHistory(data); })
+      .then(r => r.ok ? r.json() : [])
+      .then((d: { id: number; amount: number; status: string; created_at: string }[]) => {
+        if (Array.isArray(d)) setHistory(d);
+      })
       .catch(() => {});
-  });
+  }, []);
 
   const submit = async () => {
     const amt = parseFloat(amount);
@@ -212,12 +405,12 @@ function WithdrawPanel({ onClose }: { onClose: () => void }) {
 
         {/* History */}
         {history.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-2 pb-4">
             <div className="text-xs text-muted-foreground font-bold uppercase tracking-widest">سجل الطلبات</div>
             {history.map(h => (
               <div key={h.id} className="bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between">
                 <div>
-                  <div className="font-bold text-white text-sm">{h.amount.toFixed(4)} gram</div>
+                  <div className="font-bold text-white text-sm">{Number(h.amount).toFixed(4)} gram</div>
                   <div className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleDateString('ar')}</div>
                 </div>
                 <div className={`text-xs font-bold ${statusColor(h.status)}`}>{statusLabel(h.status)}</div>
@@ -240,6 +433,7 @@ export default function Profile() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showDeposit, setShowDeposit] = useState(false);
 
   function handleLangSelect(value: Lang) {
     setLang(value);
@@ -301,6 +495,21 @@ export default function Profile() {
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </div>
 
+        {/* Deposit */}
+        <div
+          onClick={() => setShowDeposit(true)}
+          className="bg-secondary/60 backdrop-blur-sm border border-white/5 rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:bg-secondary/80 transition-colors"
+        >
+          <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-white">
+            <ArrowDown className="w-6 h-6" />
+          </div>
+          <div className="flex-1">
+            <div className="font-bold text-white mb-0.5">إيداع gram</div>
+            <div className="text-xs text-muted-foreground">إيداع gram إلى رصيدك</div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+        </div>
+
         {/* Withdraw */}
         <div
           onClick={() => setShowWithdraw(true)}
@@ -311,7 +520,7 @@ export default function Profile() {
           </div>
           <div className="flex-1">
             <div className="font-bold text-white mb-0.5">{t('profile_withdraw')}</div>
-            <div className="text-xs text-muted-foreground">{t('profile_withdraw_desc')}</div>
+            <div className="text-xs text-muted-foreground">سحب رصيدك إلى محفظة gram</div>
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </div>
@@ -326,7 +535,7 @@ export default function Profile() {
           </div>
           <div className="flex-1">
             <div className="font-bold text-white mb-0.5">{t('profile_swap')}</div>
-            <div className="text-xs text-muted-foreground">{t('profile_swap_desc')}</div>
+            <div className="text-xs text-muted-foreground">تحويل gram ⇄ coin</div>
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </div>
@@ -348,9 +557,10 @@ export default function Profile() {
       </div>
 
       {/* ── Modals / Panels ── */}
-      {showWallet    && <WalletModal onClose={() => setShowWallet(false)} />}
-      {showSwap      && <SwapPanel onClose={() => setShowSwap(false)} />}
-      {showWithdraw  && <WithdrawPanel onClose={() => setShowWithdraw(false)} />}
+      {showWallet   && <WalletModal onClose={() => setShowWallet(false)} />}
+      {showSwap     && <SwapPanel onClose={() => setShowSwap(false)} />}
+      {showWithdraw && <WithdrawPanel onClose={() => setShowWithdraw(false)} />}
+      {showDeposit  && <DepositPanel onClose={() => setShowDeposit(false)} />}
 
       {/* ── Settings Panel ── */}
       {showSettings && (

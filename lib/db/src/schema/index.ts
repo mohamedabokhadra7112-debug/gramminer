@@ -44,6 +44,14 @@ export const tasksTable = pgTable("gm_tasks", {
   isDaily: boolean("is_daily").notNull().default(false),
   isHidden: boolean("is_hidden").notNull().default(false),
   channelUsername: text("channel_username"),
+  /** channel | group | null (for non-social tasks) */
+  taskType: text("task_type"),
+  /** join_link for channel/group tasks */
+  joinLink: text("join_link"),
+  /** numeric chat id or @username used for getChatMember verification */
+  chatId: text("chat_id"),
+  /** enabled/disabled by admin */
+  isEnabled: boolean("is_enabled").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -72,6 +80,27 @@ export const referralsTable = pgTable(
   (t) => [unique().on(t.referredId)], // each new user can only have one referrer
 );
 
+// ─── Referral milestones ──────────────────────────────────────────────────────
+export const referralMilestonesTable = pgTable("gm_referral_milestones", {
+  id: serial("id").primaryKey(),
+  inviteCount: integer("invite_count").notNull(),
+  rewardCoins: integer("reward_coins").notNull().default(0),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ─── Referral milestone credits (idempotency: one credit per user per milestone) ─
+export const referralMilestoneCreditsTable = pgTable(
+  "gm_referral_milestone_credits",
+  {
+    id: serial("id").primaryKey(),
+    telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+    milestoneId: integer("milestone_id").notNull(),
+    creditedAt: timestamp("credited_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.telegramId, t.milestoneId)],
+);
+
 // ─── Mandatory channels ───────────────────────────────────────────────────────
 export const channelsTable = pgTable("gm_channels", {
   id: serial("id").primaryKey(),
@@ -92,6 +121,60 @@ export const withdrawalsTable = pgTable("gm_withdrawals", {
   rejectionReason: text("rejection_reason"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   processedAt: timestamp("processed_at"),
+});
+
+// ─── Deposits ─────────────────────────────────────────────────────────────────
+export const depositsTable = pgTable("gm_deposits", {
+  id: serial("id").primaryKey(),
+  telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+  walletAddress: text("wallet_address").notNull(),
+  txHash: text("tx_hash").notNull().unique(),
+  amount: doublePrecision("amount").notNull(),
+  /** pending | confirmed | rejected */
+  status: text("status").notNull().default("pending"),
+  confirmations: integer("confirmations").notNull().default(0),
+  creditedAt: timestamp("credited_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+  rejectionReason: text("rejection_reason"),
+});
+
+// ─── Swaps (Gram <-> Coins) ───────────────────────────────────────────────────
+export const swapsTable = pgTable("gm_swaps", {
+  id: serial("id").primaryKey(),
+  telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+  /** gram_to_coins | coins_to_gram */
+  direction: text("direction").notNull(),
+  gramAmount: doublePrecision("gram_amount").notNull(),
+  coinsAmount: integer("coins_amount").notNull(),
+  rate: doublePrecision("rate").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ─── Coin Store Products ──────────────────────────────────────────────────────
+export const storeProductsTable = pgTable("gm_store_products", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").default(""),
+  coinPrice: integer("coin_price").notNull(),
+  gramValue: doublePrecision("gram_value").notNull().default(0),
+  dailyMiningPct: doublePrecision("daily_mining_pct").notNull().default(0.05),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ─── Coin Store Purchases / Ownership ────────────────────────────────────────
+export const storePurchasesTable = pgTable("gm_store_purchases", {
+  id: serial("id").primaryKey(),
+  telegramId: bigint("telegram_id", { mode: "number" }).notNull(),
+  productId: integer("product_id").notNull(),
+  coinsPaid: integer("coins_paid").notNull(),
+  gramValue: doublePrecision("gram_value").notNull().default(0),
+  dailyMiningPct: doublePrecision("daily_mining_pct").notNull().default(0.05),
+  /** principal remaining for mining; starts at gramValue */
+  principalRemaining: doublePrecision("principal_remaining").notNull().default(0),
+  lastClaimAt: timestamp("last_claim_at"),
+  purchasedAt: timestamp("purchased_at").notNull().defaultNow(),
 });
 
 // ─── Earnings log (rolling 24-hour tracking) ─────────────────────────────────
@@ -122,3 +205,8 @@ export type User = typeof usersTable.$inferSelect;
 export type Task = typeof tasksTable.$inferSelect;
 export type Channel = typeof channelsTable.$inferSelect;
 export type Withdrawal = typeof withdrawalsTable.$inferSelect;
+export type Deposit = typeof depositsTable.$inferSelect;
+export type Swap = typeof swapsTable.$inferSelect;
+export type StoreProduct = typeof storeProductsTable.$inferSelect;
+export type StorePurchase = typeof storePurchasesTable.$inferSelect;
+export type ReferralMilestone = typeof referralMilestonesTable.$inferSelect;

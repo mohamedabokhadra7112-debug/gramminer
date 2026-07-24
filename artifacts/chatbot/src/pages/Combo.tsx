@@ -9,55 +9,59 @@ function getInitData(): string { return window.Telegram?.WebApp?.initData ?? '';
 const ITEMS = [
   {
     id: 1, name: 'Crystal Core',
-    emoji: '💎',
+    img: '/combo/crystal-core.jpg',
     gradient: 'from-blue-600/30 to-blue-400/10',
     border: 'border-blue-500/40',
     glow: 'shadow-blue-500/20',
   },
   {
     id: 2, name: 'Mining\nPickaxe',
-    emoji: '⛏️',
+    img: '/combo/mining-pickaxe.jpg',
     gradient: 'from-violet-600/30 to-violet-400/10',
     border: 'border-violet-500/40',
     glow: 'shadow-violet-500/20',
   },
   {
     id: 3, name: 'Mining Rig',
-    emoji: '🖥️',
+    img: '/combo/mining-rig.jpg',
     gradient: 'from-cyan-600/30 to-cyan-400/10',
     border: 'border-cyan-500/40',
     glow: 'shadow-cyan-500/20',
   },
   {
     id: 4, name: 'Server\nNode',
-    emoji: '🗄️',
+    img: '/combo/server-node.jpg',
     gradient: 'from-emerald-600/30 to-emerald-400/10',
     border: 'border-emerald-500/40',
     glow: 'shadow-emerald-500/20',
   },
   {
     id: 5, name: 'Treasure\nVault',
-    emoji: '🪙',
+    img: '/combo/treasure-vault.jpg',
     gradient: 'from-amber-600/30 to-amber-400/10',
     border: 'border-amber-500/40',
     glow: 'shadow-amber-500/20',
   },
 ];
 
+// Max allowed attempts per day
+const MAX_DAILY_ATTEMPTS = 1;
+
 type ComboResult = { ok: boolean; success: boolean; reward: number };
 
 export default function Combo() {
   const { addCoins } = useCoins();
 
-  const [loading, setLoading]           = useState(true);
-  const [attemptedToday, setAttempted]  = useState(false);
-  const [prevSuccess, setPrevSuccess]   = useState<boolean | null>(null);
-  const [prevReward, setPrevReward]     = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [attemptedToday, setAttempted] = useState(false);
+  const [attemptsUsed, setAttemptsUsed] = useState(0);
+  const [prevSuccess, setPrevSuccess] = useState<boolean | null>(null);
+  const [prevReward, setPrevReward] = useState<number | null>(null);
 
-  const [selected, setSelected]         = useState<number[]>([]);
-  const [submitting, setSubmitting]     = useState(false);
-  const [result, setResult]             = useState<ComboResult | null>(null);
-  const [error, setError]               = useState('');
+  const [selected, setSelected] = useState<number[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<ComboResult | null>(null);
+  const [error, setError] = useState('');
 
   // ── Load today's status ──────────────────────────────────────────────────
   useEffect(() => {
@@ -69,7 +73,9 @@ export default function Combo() {
     })
       .then(r => r.json())
       .then(data => {
-        setAttempted(data.attemptedToday ?? false);
+        const attempted = data.attemptedToday ?? false;
+        setAttempted(attempted);
+        setAttemptsUsed(attempted ? MAX_DAILY_ATTEMPTS : 0);
         setPrevSuccess(data.success ?? null);
         setPrevReward(data.reward ?? null);
       })
@@ -77,12 +83,14 @@ export default function Combo() {
       .finally(() => setLoading(false));
   }, []);
 
+  const attemptsRemaining = Math.max(0, MAX_DAILY_ATTEMPTS - attemptsUsed);
+
   // ── Toggle card selection (max 3) ────────────────────────────────────────
   function toggleSelect(id: number) {
     if (attemptedToday || result) return;
     setSelected(prev => {
       if (prev.includes(id)) return prev.filter(x => x !== id);
-      if (prev.length >= 3)  return prev; // already at max
+      if (prev.length >= 3)  return prev;
       return [...prev, id];
     });
   }
@@ -105,6 +113,7 @@ export default function Combo() {
       if (!res.ok) {
         if (data.error === 'already_attempted') {
           setAttempted(true);
+          setAttemptsUsed(MAX_DAILY_ATTEMPTS);
           setError('لقد استخدمت محاولتك اليوم بالفعل');
         } else {
           setError(data.error || 'حدث خطأ');
@@ -113,16 +122,18 @@ export default function Combo() {
       }
       setResult(data);
       setAttempted(true);
+      setAttemptsUsed(MAX_DAILY_ATTEMPTS);
       if (data.success && data.reward > 0) addCoins(data.reward);
-    } catch (e: any) {
-      setError(e.message || 'تعذر الإرسال');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg || 'تعذر الإرسال');
     } finally {
       setSubmitting(false);
     }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  const isDone = attemptedToday && !result; // done in a previous session
+  const isDone = attemptedToday && !result;
   const showSuccess = result ? result.success : (isDone ? prevSuccess : null);
   const showReward  = result ? result.reward  : (isDone ? prevReward  : null);
 
@@ -131,13 +142,31 @@ export default function Combo() {
       <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.80)' }} />
 
       {/* Header */}
-      <div className="relative z-10 flex items-center gap-3 px-4 py-4 border-b border-white/10">
-        <div className="w-9 h-9 rounded-xl bg-primary/20 flex items-center justify-center">
-          <Sparkles className="w-5 h-5 text-primary" />
+      <div className="relative z-10 flex items-center justify-between px-4 py-4 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/20 flex items-center justify-center">
+            <Sparkles className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-lg font-black text-white">الكومبو اليومي</h1>
+            <p className="text-[10px] text-muted-foreground">اختر 3 عناصر صح واكسب coins</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-black text-white">الكومبو اليومي</h1>
-          <p className="text-[10px] text-muted-foreground">اختر 3 عناصر صح واكسب coins</p>
+        {/* Attempts counter */}
+        <div className="flex flex-col items-end">
+          <div className="flex items-center gap-1">
+            {Array.from({ length: MAX_DAILY_ATTEMPTS }, (_, i) => (
+              <div
+                key={i}
+                className={`w-3 h-3 rounded-full transition-all ${
+                  i < attemptsUsed ? 'bg-destructive/60' : 'bg-primary'
+                }`}
+              />
+            ))}
+          </div>
+          <span className="text-[10px] text-muted-foreground mt-0.5">
+            {attemptsRemaining}/{MAX_DAILY_ATTEMPTS} متبقية
+          </span>
         </div>
       </div>
 
@@ -149,6 +178,21 @@ export default function Combo() {
           </div>
         ) : (
           <>
+            {/* Attempts info bar */}
+            <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">المحاولات اليوم</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-white">{attemptsUsed} / {MAX_DAILY_ATTEMPTS} مستخدمة</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                  attemptsRemaining > 0
+                    ? 'bg-primary/20 text-primary'
+                    : 'bg-destructive/20 text-destructive'
+                }`}>
+                  {attemptsRemaining} متبقية
+                </span>
+              </div>
+            </div>
+
             {/* Result banner (after submit or re-open) */}
             {(result || isDone) && showSuccess !== null && (
               <div className={`rounded-2xl border p-4 flex flex-col items-center gap-2 text-center
@@ -283,7 +327,12 @@ function ItemCard({
           <CheckCircle2 className="w-3.5 h-3.5 text-black" />
         </div>
       )}
-      <span className="text-3xl leading-none">{item.emoji}</span>
+      <img
+        src={item.img}
+        alt={item.name}
+        className="w-16 h-16 object-cover rounded-xl"
+        draggable={false}
+      />
       <span className="text-white text-[11px] font-bold text-center leading-tight whitespace-pre-line">
         {item.name}
       </span>
