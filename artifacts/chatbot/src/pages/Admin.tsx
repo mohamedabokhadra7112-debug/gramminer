@@ -3,7 +3,7 @@ import {
   Shield, BarChart3, MessageSquare, ClipboardList, Radio, DollarSign,
   Users, Plus, Trash2, Eye, EyeOff, Ban, Coins, AlertTriangle,
   ChevronDown, ChevronUp, Send, Wrench, Settings, Pickaxe, ArrowDownUp,
-  UserPlus, Search, Check, X, ArrowUp, Sparkles,
+  UserPlus, Search, Check, X, ArrowUp, Sparkles, Trophy, Clock, Flame,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -891,6 +891,246 @@ function ComboDailySection() {
   );
 }
 
+// ─── Tournament Section ────────────────────────────────────────────────────
+interface Tournament {
+  id: number;
+  title: string;
+  topN: number;
+  prizes: { rank: number; gram: number }[];
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  settledAt?: string;
+}
+
+function TournamentSection() {
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [status, setStatus]           = useState('');
+  const [settling, setSettling]       = useState<number | null>(null);
+
+  // Create form state
+  const [title, setTitle]         = useState('');
+  const [topN, setTopN]           = useState(10);
+  const [durationH, setDurationH] = useState(24);
+  // prizes: rank 1..topN each with a gram value
+  const [prizeValues, setPrizeValues] = useState<Record<number, string>>({
+    1: '1000', 2: '500', 3: '250', 4: '100', 5: '50',
+  });
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api<Tournament[]>('GET', '/admin/general?type=tournament');
+      setTournaments(data);
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rankLabel = (r: number) => r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `#${r}`;
+
+  const create = async () => {
+    if (!title.trim()) { setStatus('❌ اكتب اسم المسابقة'); return; }
+    const prizes = Array.from({ length: topN }, (_, i) => ({
+      rank: i + 1,
+      gram: Number(prizeValues[i + 1] ?? 0),
+    })).filter(p => p.gram > 0);
+    try {
+      setStatus('');
+      await api('POST', '/admin/general?type=tournament', { title, topN, durationHours: durationH, prizes });
+      setStatus('✅ تم إنشاء المسابقة');
+      setTitle('');
+      await load();
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    setTimeout(() => setStatus(''), 3000);
+  };
+
+  const cancel = async (id: number) => {
+    if (!confirm('إلغاء المسابقة؟')) return;
+    try {
+      await api('DELETE', `/admin/general?type=tournament&id=${id}`);
+      setStatus('✅ تم الإلغاء');
+      await load();
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    setTimeout(() => setStatus(''), 2000);
+  };
+
+  const settle = async (id: number) => {
+    if (!confirm('إنهاء المسابقة وتوزيع الجوائز الآن؟')) return;
+    setSettling(id);
+    try {
+      await api('POST', `/admin/general?type=tournament&action=settle&id=${id}`);
+      setStatus('✅ تم إنهاء المسابقة وتوزيع الجوائز');
+      await load();
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    finally { setSettling(null); }
+    setTimeout(() => setStatus(''), 3000);
+  };
+
+  const formatDate = (d: string) =>
+    new Date(d).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
+
+  const timeLeft = (endsAt: string) => {
+    const diff = new Date(endsAt).getTime() - Date.now();
+    if (diff <= 0) return 'انتهت';
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    return `${h}س ${m}د`;
+  };
+
+  const active = tournaments.filter(t => t.status === 'active');
+  const past   = tournaments.filter(t => t.status !== 'active');
+
+  const DURATION_OPTIONS = [
+    { v: 1, l: 'ساعة' }, { v: 6, l: '6 ساعات' }, { v: 12, l: '12 ساعة' },
+    { v: 24, l: '24 ساعة' }, { v: 48, l: '48 ساعة' }, { v: 72, l: '72 ساعة' },
+    { v: 168, l: 'أسبوع' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* ── Create form ── */}
+      <div className="bg-black/30 rounded-xl p-3 space-y-3 border border-white/10">
+        <p className="text-xs font-black text-white/70 flex items-center gap-1.5">
+          <Plus className="w-3.5 h-3.5 text-primary" /> إنشاء مسابقة جديدة
+        </p>
+
+        <Input
+          placeholder="اسم المسابقة (مثال: بطولة يوليو)"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+        />
+
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <p className="text-[10px] text-white/50 mb-1">عدد المراكز</p>
+            <select
+              value={topN}
+              onChange={e => setTopN(Number(e.target.value))}
+              className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none"
+            >
+              {[3,5,10,20,30,50].map(n => <option key={n} value={n}>{n} مراكز</option>)}
+            </select>
+          </div>
+          <div className="flex-1">
+            <p className="text-[10px] text-white/50 mb-1">المدة</p>
+            <select
+              value={durationH}
+              onChange={e => setDurationH(Number(e.target.value))}
+              className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none"
+            >
+              {DURATION_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Prize inputs — show up to first 10 or topN */}
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-white/50">الجوائز (gram لكل مركز)</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {Array.from({ length: Math.min(topN, 10) }, (_, i) => (
+              <div key={i + 1} className="flex items-center gap-2 bg-black/20 rounded-xl px-2 py-1.5">
+                <span className="text-xs font-bold text-white/70 w-7 flex-shrink-0">{rankLabel(i + 1)}</span>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={prizeValues[i + 1] ?? ''}
+                  onChange={e => setPrizeValues(p => ({ ...p, [i + 1]: e.target.value }))}
+                  className="w-full bg-transparent text-white text-sm focus:outline-none"
+                />
+                <span className="text-[10px] text-white/30 flex-shrink-0">gram</span>
+              </div>
+            ))}
+          </div>
+          {topN > 10 && (
+            <p className="text-[10px] text-white/40">
+              المراكز {11}–{topN} بدون مكافأة (يمكنك تخصيصها بعد الإنشاء)
+            </p>
+          )}
+        </div>
+
+        <StatusMsg msg={status} isError={status.startsWith('❌')} />
+        <Btn onClick={create} disabled={!title.trim()} className="w-full">
+          <Trophy className="w-3.5 h-3.5" /> إنشاء المسابقة
+        </Btn>
+      </div>
+
+      {/* ── Active tournaments ── */}
+      {loading ? (
+        <div className="text-muted-foreground text-sm">جار التحميل...</div>
+      ) : active.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-black text-success flex items-center gap-1.5">
+            <Flame className="w-3.5 h-3.5" /> مسابقات نشطة ({active.length})
+          </p>
+          {active.map(t => (
+            <div key={t.id} className="bg-success/10 border border-success/30 rounded-xl p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-white font-black text-sm">{t.title}</p>
+                  <p className="text-[11px] text-white/50 flex items-center gap-1 mt-0.5">
+                    <Clock className="w-3 h-3" /> ينتهي: {formatDate(t.endsAt)} · متبقي: {timeLeft(t.endsAt)}
+                  </p>
+                  <p className="text-[11px] text-white/40 mt-0.5">
+                    أفضل {t.topN} مستخدمين · {t.prizes.filter(p => p.gram > 0).length} جوائز
+                  </p>
+                </div>
+                <div className="flex gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => settle(t.id)}
+                    disabled={settling === t.id}
+                    className="bg-primary/20 text-primary text-[10px] font-bold rounded-lg px-2 py-1 border border-primary/30"
+                  >
+                    {settling === t.id ? '...' : 'إنهاء الآن'}
+                  </button>
+                  <button
+                    onClick={() => cancel(t.id)}
+                    className="bg-destructive/20 text-destructive text-[10px] font-bold rounded-lg px-2 py-1 border border-destructive/30"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+              {/* Prize summary */}
+              <div className="flex flex-wrap gap-1.5">
+                {t.prizes.filter(p => p.gram > 0).slice(0, 5).map(p => (
+                  <span key={p.rank} className="text-[10px] bg-black/30 rounded-lg px-2 py-0.5 text-white/70">
+                    {rankLabel(p.rank)} {p.gram}g
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-white/40 text-center py-2">لا توجد مسابقات نشطة حالياً</p>
+      )}
+
+      {/* ── Past tournaments ── */}
+      {past.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-black text-white/50">السابقة ({past.length})</p>
+          {past.slice(0, 5).map(t => (
+            <div key={t.id} className="bg-white/5 border border-white/10 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-white/80 font-bold text-sm">{t.title}</p>
+                <span className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${
+                  t.status === 'settled' ? 'bg-success/20 text-success' : 'bg-white/10 text-white/40'
+                }`}>
+                  {t.status === 'settled' ? '✅ منتهية' : '🚫 ملغاة'}
+                </span>
+              </div>
+              <p className="text-[10px] text-white/40 mt-0.5">{formatDate(t.endsAt)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────
 export default function Admin() {
   return (
@@ -948,6 +1188,9 @@ export default function Admin() {
         </Section>
         <Section title="الكومبو اليومي" icon={Sparkles}>
           <ComboDailySection />
+        </Section>
+        <Section title="المسابقات" icon={Trophy}>
+          <TournamentSection />
         </Section>
       </div>
     </div>

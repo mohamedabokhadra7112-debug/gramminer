@@ -1,8 +1,8 @@
-import { Users, Copy, Share2, CheckCircle2, RefreshCw, Gift, Star, X } from 'lucide-react';
+import { Users, Copy, Share2, CheckCircle2, RefreshCw, Gift, Star, X, Trophy, Clock } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE, getInitData } from '@/lib/telegramApi';
 
 const BOT_USERNAME = 'GramCoin11_bot';
@@ -31,6 +31,37 @@ interface LeaderUser {
   lastName: string | null;
   username: string | null;
   balance: number;
+}
+
+interface TournamentPrize { rank: number; gram: number }
+interface ActiveTournament {
+  id: number;
+  title: string;
+  topN: number;
+  prizes: TournamentPrize[];
+  startsAt: string;
+  endsAt: string;
+  status: string;
+}
+
+/** Countdown hook — returns formatted string, updates every second */
+function useCountdown(endsAt: string | undefined) {
+  const [label, setLabel] = useState('');
+  useEffect(() => {
+    if (!endsAt) return;
+    const tick = () => {
+      const diff = new Date(endsAt).getTime() - Date.now();
+      if (diff <= 0) { setLabel('انتهت'); return; }
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      const s = Math.floor((diff % 60_000) / 1_000);
+      setLabel(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [endsAt]);
+  return label;
 }
 
 function AvatarImg({ telegramId, name }: { telegramId: number; name: string }) {
@@ -385,15 +416,15 @@ export default function Friends() {
           {/* Leaderboard Button */}
           <button
             onClick={handleOpenLeaderboard}
-            className="w-[60px] flex-shrink-0 rounded-xl border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform overflow-hidden"
-            style={{ backgroundColor: 'rgba(0,0,0,0.50)' }}
+            className="w-[60px] flex-shrink-0 rounded-xl border border-white/20 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform overflow-hidden"
+            style={{ backgroundColor: '#ffffff' }}
           >
             <img
               src={LEADERBOARD_ICON}
               alt="leaderboard"
               className="w-8 h-8 object-contain"
             />
-            <span className="text-[9px] text-white/65 font-bold leading-tight text-center px-1">
+            <span className="text-[9px] text-black/70 font-bold leading-tight text-center px-1">
               المتصدرون
             </span>
           </button>

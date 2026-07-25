@@ -11,12 +11,14 @@ import depositsRouter    from "./deposits";
 import swapRouter        from "./swap";
 import storeRouter       from "./store";
 import leaderboardRouter from "./leaderboard";
+import tournamentRouter  from "./tournament";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(manifestRouter);
 router.use(leaderboardRouter);
+router.use(tournamentRouter);
 // Feature routers registered before telegramRouter so their specific paths
 // take precedence over legacy catch-all handlers in telegram.ts
 router.use(referralsRouter);

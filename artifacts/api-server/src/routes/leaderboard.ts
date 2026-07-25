@@ -15,12 +15,12 @@ router.get("/leaderboard", async (_req, res): Promise<void> => {
       first_name: string | null;
       last_name: string | null;
       username: string | null;
-      balance: string;
+      coins: string;
     }>(`
-      SELECT telegram_id, first_name, last_name, username, balance
+      SELECT telegram_id, first_name, last_name, username, coins
       FROM gm_users
       WHERE is_banned = false
-      ORDER BY balance DESC
+      ORDER BY coins DESC
       LIMIT 20
     `);
 
@@ -31,7 +31,7 @@ router.get("/leaderboard", async (_req, res): Promise<void> => {
         firstName:  r.first_name  ?? null,
         lastName:   r.last_name   ?? null,
         username:   r.username    ?? null,
-        balance:    Number(r.balance),
+        balance:    Number(r.coins),
       })),
     );
   } catch (err) {

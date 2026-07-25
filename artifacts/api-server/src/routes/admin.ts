@@ -322,6 +322,83 @@ router.all("/admin/general", async (req, res) => {
         res.json({ ok: true });
       } else { res.status(400).json({ error: "Invalid method or missing id" }); }
 
+    // ── tournament ────────────────────────────────────────────────────────────
+    } else if (type === "tournament") {
+      const { pool } = await import("@workspace/db");
+      // Ensure table exists (lazy migration)
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS gm_tournaments (
+          id          SERIAL PRIMARY KEY,
+          title       TEXT    NOT NULL,
+          top_n       INTEGER NOT NULL DEFAULT 10,
+          prizes      TEXT    NOT NULL DEFAULT '[]',
+          starts_at   TIMESTAMPTZ NOT NULL,
+          ends_at     TIMESTAMPTZ NOT NULL,
+          status      TEXT    NOT NULL DEFAULT 'active',
+          snapshot    TEXT,
+          settled_at  TIMESTAMPTZ,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+
+      if (method === "GET") {
+        // List all tournaments (latest first)
+        const result = await pool.query(
+          `SELECT id, title, top_n, prizes, starts_at, ends_at, status, settled_at, created_at
+           FROM gm_tournaments ORDER BY created_at DESC LIMIT 50`
+        );
+        res.json(result.rows.map(r => ({
+          id:        r.id,
+          title:     r.title,
+          topN:      r.top_n,
+          prizes:    JSON.parse(r.prizes),
+          startsAt:  r.starts_at,
+          endsAt:    r.ends_at,
+          status:    r.status,
+          settledAt: r.settled_at,
+        })));
+
+      } else if (method === "POST" && !action) {
+        // Create tournament
+        const body = req.body as {
+          title?: string;
+          topN?: number;
+          prizes?: { rank: number; gram: number }[];
+          durationHours?: number;
+        };
+        if (!body.title?.trim()) { res.status(400).json({ error: "title required" }); return; }
+        if (!body.durationHours || body.durationHours <= 0) { res.status(400).json({ error: "durationHours must be > 0" }); return; }
+        const topN   = Math.min(50, Math.max(1, body.topN ?? 10));
+        const prizes = Array.isArray(body.prizes) ? body.prizes : [];
+        const now    = new Date();
+        const endsAt = new Date(now.getTime() + body.durationHours * 3600 * 1000);
+
+        const r = await pool.query(
+          `INSERT INTO gm_tournaments (title, top_n, prizes, starts_at, ends_at, status)
+           VALUES ($1, $2, $3, $4, $5, 'active')
+           RETURNING id`,
+          [body.title.trim(), topN, JSON.stringify(prizes), now, endsAt]
+        );
+        logger.info({ id: r.rows[0].id, title: body.title, topN, durationHours: body.durationHours }, "Tournament created");
+        res.json({ ok: true, id: r.rows[0].id });
+
+      } else if (method === "POST" && action === "settle" && id) {
+        // Manual settle trigger — call the settler directly
+        const { settleTournamentNow } = await import("../lib/tournamentSettler");
+        await settleTournamentNow(id);
+        res.json({ ok: true });
+
+      } else if (method === "DELETE" && id) {
+        await pool.query(
+          `UPDATE gm_tournaments SET status='cancelled' WHERE id=$1 AND status='active'`,
+          [id]
+        );
+        res.json({ ok: true });
+
+      } else {
+        res.status(400).json({ error: "Invalid tournament request" });
+      }
+
     } else {
       res.status(400).json({ error: `Unknown type: ${type ?? "(none)"}` });
     }
