@@ -1,6 +1,8 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import path from "path";
+import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { getDb } from "./lib/db";
@@ -82,5 +84,23 @@ app.use(async (req: Request, res: Response, next: NextFunction): Promise<void> =
 });
 
 app.use("/api", router);
+
+// ── Serve compiled frontend (production) ──────────────────────────────────────
+// When NODE_ENV=production, the API server also serves the Vite-built frontend.
+// This lets a single Replit deployment handle both API routes and the React SPA.
+const frontendDist = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "../../chatbot/dist/public",
+);
+
+if (process.env["NODE_ENV"] === "production" && fs.existsSync(frontendDist)) {
+  logger.info({ frontendDist }, "Serving compiled frontend");
+  app.use(express.static(frontendDist));
+  // Catch-all: serve index.html for client-side routes (wouter).
+  // Express 5 requires "/{*path}" instead of "*".
+  app.get("/{*path}", (_req, res) => {
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
+}
 
 export default app;
