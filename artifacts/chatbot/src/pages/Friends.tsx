@@ -229,7 +229,7 @@ export default function Friends() {
   const [leaderboard, setLeaderboard] = useState<LeaderUser[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
-  const referralLink = `https://t.me/${BOT_USERNAME}?start=${tgUser?.id ?? referralCode}`;
+  const referralLink = `https://t.me/${BOT_USERNAME}?start=${tgUser?.id ?? ''}`;
 
   const loadMilestones = useCallback(async () => {
     const initData = getInitData();
