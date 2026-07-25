@@ -1,4 +1,4 @@
-import { Users, Copy, Share2, CheckCircle2, RefreshCw, Gift, Star } from 'lucide-react';
+import { Users, Copy, Share2, CheckCircle2, RefreshCw, Gift, Star, X } from 'lucide-react';
 import { useWallet } from '@/context/WalletContext';
 import { useTelegramUser } from '@/context/TelegramUserContext';
 import { useLanguage } from '@/context/LanguageContext';
@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { API_BASE, getInitData } from '@/lib/telegramApi';
 
 const BOT_USERNAME = 'GramCoin11_bot';
+const LEADERBOARD_ICON = 'https://vynex-coin1.vercel.app/sad-icon.png';
 
 interface Milestone {
   id: number;
@@ -23,6 +24,167 @@ interface ReferralData {
   progress: number;
 }
 
+interface LeaderUser {
+  rank: number;
+  telegramId: number;
+  firstName: string | null;
+  lastName: string | null;
+  username: string | null;
+  balance: number;
+}
+
+function AvatarImg({ telegramId, name }: { telegramId: number; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const initial = name?.charAt(0)?.toUpperCase() || '?';
+
+  if (failed) {
+    return (
+      <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+        <span className="text-primary font-black text-sm">{initial}</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={`${API_BASE}/api/telegram/avatar/${telegramId}`}
+      alt={name}
+      className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function LeaderboardModal({
+  onClose,
+  leaderboard,
+  loading,
+}: {
+  onClose: () => void;
+  leaderboard: LeaderUser[];
+  loading: boolean;
+}) {
+  const rankIcon = (r: number) => {
+    if (r === 1) return '🥇';
+    if (r === 2) return '🥈';
+    if (r === 3) return '🥉';
+    return r;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+      {/* Overlay */}
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Sheet */}
+      <div
+        className="relative z-10 rounded-t-3xl flex flex-col"
+        style={{
+          backgroundColor: '#0a0b14',
+          maxHeight: '88vh',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        {/* Handle bar */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-white/20" />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3">
+          <div className="flex items-center gap-2">
+            <img src={LEADERBOARD_ICON} alt="" className="w-7 h-7 object-contain" />
+            <h2 className="text-xl font-black text-white">المتصدرون</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"
+          >
+            <X className="w-4 h-4 text-white/70" />
+          </button>
+        </div>
+
+        {/* Subtitle */}
+        <p className="text-xs text-white/40 px-5 pb-3 font-medium">أفضل 20 مستخدم بالرصيد الأعلى</p>
+
+        {/* List */}
+        <div className="overflow-y-auto flex-1 px-4 pb-8 space-y-2">
+          {loading ? (
+            <div className="flex justify-center py-14">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : leaderboard.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-white/40">
+              <img src={LEADERBOARD_ICON} alt="" className="w-14 h-14 object-contain opacity-30 mb-3" />
+              <p className="text-sm font-semibold">لا توجد بيانات بعد</p>
+            </div>
+          ) : (
+            leaderboard.map((u) => {
+              const displayName = [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Miner';
+              return (
+                <div
+                  key={u.telegramId}
+                  className="flex items-center gap-3 rounded-2xl px-3 py-2.5 border border-white/8"
+                  style={{
+                    backgroundColor:
+                      u.rank === 1
+                        ? 'rgba(255,215,0,0.06)'
+                        : u.rank === 2
+                        ? 'rgba(192,192,192,0.06)'
+                        : u.rank === 3
+                        ? 'rgba(205,127,50,0.06)'
+                        : 'rgba(0,0,0,0.45)',
+                    borderColor:
+                      u.rank === 1
+                        ? 'rgba(255,215,0,0.25)'
+                        : u.rank === 2
+                        ? 'rgba(192,192,192,0.18)'
+                        : u.rank === 3
+                        ? 'rgba(205,127,50,0.22)'
+                        : 'rgba(255,255,255,0.07)',
+                  }}
+                >
+                  {/* Rank */}
+                  <div className="w-8 text-center flex-shrink-0">
+                    {u.rank <= 3 ? (
+                      <span className="text-lg leading-none">{rankIcon(u.rank)}</span>
+                    ) : (
+                      <span className="text-sm font-black text-white/40">{u.rank}</span>
+                    )}
+                  </div>
+
+                  {/* Avatar */}
+                  <AvatarImg telegramId={u.telegramId} name={displayName} />
+
+                  {/* Name + username */}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold text-white truncate">{displayName}</div>
+                    {u.username ? (
+                      <div className="text-[11px] text-white/45 truncate">@{u.username}</div>
+                    ) : (
+                      <div className="text-[11px] text-white/25 truncate">#{u.telegramId}</div>
+                    )}
+                  </div>
+
+                  {/* Balance */}
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-sm font-black text-primary">
+                      {u.balance.toFixed(4)}
+                    </div>
+                    <div className="text-[10px] text-white/40 font-semibold">gram</div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Friends() {
   const { referralCode, referralCount, referralBalance, refreshReferrals } = useWallet();
   const { user: tgUser } = useTelegramUser();
@@ -30,6 +192,11 @@ export default function Friends() {
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [milestoneData, setMilestoneData] = useState<ReferralData | null>(null);
+
+  // Leaderboard state
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<LeaderUser[]>([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
 
   const referralLink = `https://t.me/${BOT_USERNAME}?start=${tgUser?.id ?? referralCode}`;
 
@@ -48,6 +215,20 @@ export default function Friends() {
   }, []);
 
   useEffect(() => { loadMilestones(); }, [loadMilestones]);
+
+  const loadLeaderboard = useCallback(async () => {
+    setLoadingLeaderboard(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/leaderboard`);
+      if (res.ok) setLeaderboard(await res.json() as LeaderUser[]);
+    } catch { /* best-effort */ }
+    finally { setLoadingLeaderboard(false); }
+  }, []);
+
+  const handleOpenLeaderboard = () => {
+    setShowLeaderboard(true);
+    loadLeaderboard();
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink).catch(() => {});
@@ -83,11 +264,19 @@ export default function Friends() {
   const displayCount = milestoneData?.count ?? referralCount;
   const displayReward = milestoneData?.reward ?? referralBalance;
   const milestones = milestoneData?.milestones ?? [];
-  const progress = milestoneData?.progress ?? 0;
 
   return (
     <div className="min-h-full flex flex-col relative w-full px-4 pt-6">
       <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
+
+      {/* Leaderboard Modal */}
+      {showLeaderboard && (
+        <LeaderboardModal
+          onClose={() => setShowLeaderboard(false)}
+          leaderboard={leaderboard}
+          loading={loadingLeaderboard}
+        />
+      )}
 
       {/* Header */}
       <div className="relative z-10 mb-5 flex items-center justify-between">
@@ -145,9 +334,7 @@ export default function Friends() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-bold text-white">
-                        {m.inviteCount} دعوة
-                      </span>
+                      <span className="text-sm font-bold text-white">{m.inviteCount} دعوة</span>
                       <span className={`text-xs font-black ${m.credited ? 'text-success' : m.reached ? 'text-primary' : 'text-white/60'}`}>
                         +{m.rewardCoins} coin
                       </span>
@@ -187,10 +374,29 @@ export default function Friends() {
           </div>
         </div>
 
-        {/* Referral Link Box */}
-        <div className="rounded-xl p-3 mb-4 border border-white/10" style={{ backgroundColor: 'rgba(0,0,0,0.50)' }}>
-          <div className="text-[10px] text-white/60 mb-1 font-semibold">{t('friends_referral_link')}</div>
-          <div className="text-xs text-primary font-mono break-all">{referralLink}</div>
+        {/* Referral Link + Leaderboard Button */}
+        <div className="flex gap-2 mb-4">
+          {/* Referral Link Box */}
+          <div className="flex-1 rounded-xl p-3 border border-white/10" style={{ backgroundColor: 'rgba(0,0,0,0.50)' }}>
+            <div className="text-[10px] text-white/60 mb-1 font-semibold">{t('friends_referral_link')}</div>
+            <div className="text-xs text-primary font-mono break-all">{referralLink}</div>
+          </div>
+
+          {/* Leaderboard Button */}
+          <button
+            onClick={handleOpenLeaderboard}
+            className="w-[60px] flex-shrink-0 rounded-xl border border-white/10 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform overflow-hidden"
+            style={{ backgroundColor: 'rgba(0,0,0,0.50)' }}
+          >
+            <img
+              src={LEADERBOARD_ICON}
+              alt="leaderboard"
+              className="w-8 h-8 object-contain"
+            />
+            <span className="text-[9px] text-white/65 font-bold leading-tight text-center px-1">
+              المتصدرون
+            </span>
+          </button>
         </div>
 
         {/* Buttons */}

@@ -1073,6 +1073,31 @@ module.exports = async function handler(req, res) {
     }
 
     // ════════════════════════════════════════════════════════════════════════
+    // GET /api/leaderboard — top 20 users by gram balance (public, no auth)
+    // ════════════════════════════════════════════════════════════════════════
+    if (path === '/api/leaderboard' && method === 'GET') {
+      const db = getPool();
+      if (!db) return res.json([]);
+      try {
+        const { rows } = await db.query(`
+          SELECT telegram_id, first_name, last_name, username, balance
+          FROM gm_users
+          WHERE is_banned = false
+          ORDER BY balance DESC
+          LIMIT 20
+        `);
+        return res.json(rows.map((r, i) => ({
+          rank:       i + 1,
+          telegramId: Number(r.telegram_id),
+          firstName:  r.first_name  ?? null,
+          lastName:   r.last_name   ?? null,
+          username:   r.username    ?? null,
+          balance:    Number(r.balance),
+        })));
+      } catch { return res.json([]); }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
     // 404 fallback
     // ════════════════════════════════════════════════════════════════════════
     return res.status(404).json({ error: 'Not found', path });

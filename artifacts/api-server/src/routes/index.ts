@@ -1,20 +1,22 @@
 import { Router, type IRouter } from "express";
-import healthRouter    from "./health";
-import telegramRouter  from "./telegram";
-import adminRouter     from "./admin";
-import userPrefsRouter from "./userPrefs";
-import tasksRouter     from "./tasks";
-import withdrawRouter  from "./withdraw";
-import manifestRouter  from "./manifest";
-import referralsRouter from "./referrals";
-import depositsRouter  from "./deposits";
-import swapRouter      from "./swap";
-import storeRouter     from "./store";
+import healthRouter      from "./health";
+import telegramRouter    from "./telegram";
+import adminRouter       from "./admin";
+import userPrefsRouter   from "./userPrefs";
+import tasksRouter       from "./tasks";
+import withdrawRouter    from "./withdraw";
+import manifestRouter    from "./manifest";
+import referralsRouter   from "./referrals";
+import depositsRouter    from "./deposits";
+import swapRouter        from "./swap";
+import storeRouter       from "./store";
+import leaderboardRouter from "./leaderboard";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(manifestRouter);
+router.use(leaderboardRouter);
 // Feature routers registered before telegramRouter so their specific paths
 // take precedence over legacy catch-all handlers in telegram.ts
 router.use(referralsRouter);
