@@ -224,7 +224,8 @@ function DepositPanel({ onClose }: { onClose: () => void }) {
         messages: [{
           address: toAddress,
           amount: nanotons.toString(),
-          payload: btoa(`deposit:gram:${amtNum}`),
+          // No payload — TON Connect doesn't accept plain base64 text.
+          // The backend identifies the deposit from the signed BOC (result.boc) below.
         }],
       });
 
