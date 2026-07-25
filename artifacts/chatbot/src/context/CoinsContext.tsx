@@ -56,7 +56,8 @@ export function CoinsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isVerified || typeof user?.coins !== 'number') return;
     seededFromServer.current = true;
-    setCoins(Math.max(loadStoredCoins(), user.coins));
+    // Always trust the server value — localStorage may hold stale optimistic data
+    setCoins(user.coins);
   }, [isVerified, user?.coins, setCoins]);
 
   const refreshBalance = useCallback(async () => {
