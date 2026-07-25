@@ -3,8 +3,8 @@
   "outputDirectory": "artifacts/chatbot/dist/public",
   "installCommand": "pnpm install",
   "framework": null,
+  "functions": {},
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

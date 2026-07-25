@@ -6,6 +6,7 @@ channel = "stable-25_05"
 [deployment]
 build = ["sh", "-c", "pnpm --filter @workspace/chatbot build && pnpm --filter @workspace/api-server run build"]
 run = ["sh", "-c", "PORT=8080 NODE_ENV=production pnpm --filter @workspace/api-server run start"]
+deploymentTarget = "autoscale"
 
 [workflows]
 runButton = "Project"
