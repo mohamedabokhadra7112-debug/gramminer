@@ -46,17 +46,163 @@ async function ensureReferralSchema() {
     `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS gm_referrals (
-        id          serial PRIMARY KEY,
-        referrer_id bigint  NOT NULL,
-        referred_id bigint  NOT NULL UNIQUE,
-        reward_paid boolean NOT NULL DEFAULT false,
-        created_at  timestamp NOT NULL DEFAULT NOW()
+        id            serial PRIMARY KEY,
+        referrer_id   bigint  NOT NULL,
+        referred_id   bigint  NOT NULL UNIQUE,
+        reward_paid   boolean NOT NULL DEFAULT false,
+        status        text    NOT NULL DEFAULT 'pending',
+        login_count   integer NOT NULL DEFAULT 0,
+        ads_watched   integer NOT NULL DEFAULT 0,
+        combo_done    boolean NOT NULL DEFAULT false,
+        created_at    timestamp NOT NULL DEFAULT NOW()
       )
     `);
+    // Add new columns to existing table if missing
+    for (const col of [
+      `ALTER TABLE gm_referrals ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'pending'`,
+      `ALTER TABLE gm_referrals ADD COLUMN IF NOT EXISTS login_count integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE gm_referrals ADD COLUMN IF NOT EXISTS ads_watched integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE gm_referrals ADD COLUMN IF NOT EXISTS combo_done boolean NOT NULL DEFAULT false`,
+    ]) {
+      await pool.query(col).catch(() => {});
+    }
     await pool.query(`ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS referred_by bigint`).catch(() => {});
     await pool.query(`ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS coins integer NOT NULL DEFAULT 0`).catch(() => {});
+    // IP tracking for fraud detection
+    await pool.query(`ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS registration_ip text`).catch(() => {});
+    await pool.query(`ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS withdraw_ip_blocked boolean NOT NULL DEFAULT false`).catch(() => {});
   } catch (e) {
     logger.warn({ e }, "referral schema migration skipped");
+  }
+}
+
+/**
+ * Called when a referred user completes an activity.
+ * Updates their referral conditions and auto-confirms when all are met.
+ * type: 'login' | 'combo' | 'ad'
+ */
+export async function updateReferralCondition(
+  referredId: number,
+  type: "login" | "combo" | "ad",
+): Promise<void> {
+  try {
+    await ensureReferralSchema();
+    const { pool } = await import("@workspace/db");
+
+    // Find this user's referral record
+    const ref = await pool.query<{
+      id: number; referrer_id: string; status: string;
+      login_count: number; ads_watched: number; combo_done: boolean;
+    }>(
+      `SELECT id, referrer_id, status, login_count, ads_watched, combo_done
+       FROM gm_referrals WHERE referred_id = $1 LIMIT 1`,
+      [referredId],
+    );
+    if (!ref.rows.length) return; // not a referred user
+    const row = ref.rows[0]!;
+    if (row.status === "confirmed") return; // already confirmed, nothing to do
+
+    // Determine update
+    let setPart = "";
+    if (type === "login") {
+      setPart = `login_count = LEAST(login_count + 1, 9999)`;
+    } else if (type === "combo") {
+      setPart = `combo_done = true`;
+    } else if (type === "ad") {
+      setPart = `ads_watched = LEAST(ads_watched + 1, 9999)`;
+    }
+
+    // Apply update and re-read conditions
+    const updated = await pool.query<{
+      login_count: number; ads_watched: number; combo_done: boolean;
+    }>(
+      `UPDATE gm_referrals SET ${setPart}
+       WHERE id = $1
+       RETURNING login_count, ads_watched, combo_done`,
+      [row.id],
+    );
+    const cond = updated.rows[0];
+    if (!cond) return;
+
+    // Check if all conditions are met: login >= 1, ads >= 5, combo_done = true
+    if (cond.login_count >= 1 && cond.ads_watched >= 5 && cond.combo_done) {
+      // Confirm the referral
+      await pool.query(
+        `UPDATE gm_referrals SET status = 'confirmed' WHERE id = $1`,
+        [row.id],
+      );
+
+      // Credit referrer (if not already paid)
+      if (!row.status.includes("paid")) {
+        // Get referral reward amount
+        let rewardCoins = 1;
+        try {
+          const r = await pool.query<{ value: string }>(
+            `SELECT value FROM gm_settings WHERE key='referral_price' LIMIT 1`,
+          );
+          rewardCoins = Number(r.rows[0]?.value ?? 1) || 1;
+        } catch { /* default */ }
+
+        await pool.query(
+          `UPDATE gm_users SET coins = coins + $1 WHERE telegram_id = $2`,
+          [rewardCoins, row.referrer_id],
+        );
+        await pool.query(
+          `UPDATE gm_referrals SET reward_paid = true WHERE id = $1`,
+          [row.id],
+        );
+
+        // Notify referrer
+        const referrerId = Number(row.referrer_id);
+        await notifyTelegram(
+          referrerId,
+          `🎉 <b>تم تأكيد إحالتك!</b>\n\n` +
+          `دعوتك تمت المصادقة عليها ✅\n` +
+          `🪙 تم إضافة <b>${rewardCoins} coin</b> إلى رصيدك.`,
+        );
+
+        // Check milestones
+        await creditNewMilestones(referrerId).catch(() => {});
+      }
+    }
+  } catch (e) {
+    logger.warn({ e }, "updateReferralCondition failed");
+  }
+}
+
+/**
+ * Check if a user's IP is blocked due to IP-based fraud (>10 accounts same IP).
+ * Also flags all accounts on that IP if threshold is exceeded.
+ */
+export async function checkIpFraud(telegramId: number, ip: string): Promise<void> {
+  if (!ip || ip === "::1" || ip === "127.0.0.1") return;
+  try {
+    await ensureReferralSchema();
+    const { pool } = await import("@workspace/db");
+
+    // Save IP if not already stored
+    await pool.query(
+      `UPDATE gm_users SET registration_ip = $1
+       WHERE telegram_id = $2 AND registration_ip IS NULL`,
+      [ip, telegramId],
+    );
+
+    // Count accounts with same IP
+    const countRes = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM gm_users WHERE registration_ip = $1`,
+      [ip],
+    );
+    const count = Number(countRes.rows[0]?.count ?? 0);
+    if (count > 10) {
+      // Block all accounts from this IP from withdrawals
+      await pool.query(
+        `UPDATE gm_users SET withdraw_ip_blocked = true WHERE registration_ip = $1`,
+        [ip],
+      );
+      logger.warn({ ip, count }, "IP fraud: blocked all accounts from this IP");
+    }
+  } catch (e) {
+    logger.warn({ e }, "checkIpFraud failed");
   }
 }
 
@@ -158,12 +304,16 @@ router.get("/telegram/referrals", async (req, res): Promise<void> => {
     const { pool } = await import("@workspace/db");
     const db = await getDb();
 
-    // Referral count
-    const countRes = await pool.query<{ count: string }>(
-      "SELECT COUNT(*) AS count FROM gm_referrals WHERE referrer_id=$1",
+    // Referral counts (total, confirmed, pending)
+    const countRes = await pool.query<{ total: string; confirmed: string }>(
+      `SELECT COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE status='confirmed') AS confirmed
+       FROM gm_referrals WHERE referrer_id=$1`,
       [user.id],
     );
-    const referralCount = Number(countRes.rows[0]?.count ?? 0);
+    const referralCount  = Number(countRes.rows[0]?.total ?? 0);
+    const confirmedCount = Number(countRes.rows[0]?.confirmed ?? 0);
+    const pendingCount   = referralCount - confirmedCount;
 
     // Referral price
     let referralPrice = 1;
@@ -203,8 +353,10 @@ router.get("/telegram/referrals", async (req, res): Promise<void> => {
     }));
 
     res.json({
-      count: referralCount,
-      reward: +(referralCount * referralPrice).toFixed(4),
+      count:         referralCount,
+      confirmed:     confirmedCount,
+      pending:       pendingCount,
+      reward:        +(confirmedCount * referralPrice).toFixed(4),
       referralPrice,
       milestones,
     });

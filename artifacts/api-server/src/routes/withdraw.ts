@@ -133,8 +133,28 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
       .where(eq(usersTable.telegramId, user.id));
 
     if (!dbUser) { res.status(404).json({ error: "User not found" }); return; }
-    if (dbUser.restrictWithdrawal) { res.status(403).json({ error: "Withdrawal restricted for this account" }); return; }
+    if (dbUser.restrictWithdrawal) { res.status(403).json({ error: "تم تقييد السحب لهذا الحساب" }); return; }
     if (!dbUser.walletAddress) { res.status(400).json({ error: "No wallet connected. Connect your TON wallet first." }); return; }
+
+    // ── Block self-withdrawal (withdraw to bot's own wallet) ──────────────────
+    const ownerWallet = process.env["OWNER_WALLET"] ?? "";
+    if (ownerWallet) {
+      const normalize = (a: string) => a.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+      if (normalize(dbUser.walletAddress) === normalize(ownerWallet)) {
+        // Permanently restrict this account from withdrawals
+        await pool.query(
+          `UPDATE gm_users SET restrict_withdrawal = true WHERE telegram_id = $1`,
+          [user.id],
+        ).catch(() => {});
+        const adminId = getAdminId();
+        if (adminId) {
+          await notifyTelegram(adminId,
+            `⚠️ <b>محاولة سحب لعنوان البوت!</b>\n👤 المستخدم: ${user.id}\n📍 العنوان: ${dbUser.walletAddress}\n🔒 تم تقييد حسابه تلقائياً.`,
+          );
+        }
+        res.status(403).json({ error: "لا يمكن السحب لعنوان البوت. تم تقييد حسابك." }); return;
+      }
+    }
     if ((dbUser.balance ?? 0) < amt) { res.status(400).json({ error: "Insufficient balance" }); return; }
 
     // Enforce withdrawal limits (min 0.1 gram hardcoded floor; admin can raise it)

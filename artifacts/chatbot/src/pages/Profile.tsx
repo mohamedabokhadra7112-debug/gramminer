@@ -170,7 +170,11 @@ function DepositPanel({ onClose }: { onClose: () => void }) {
   const [tonConnectUI] = useTonConnectUI();
   const tonWallet = useTonWallet();
 
-  const [amount, setAmount] = useState('');
+  // Pre-fill from store navigation (set by Miners.tsx via sessionStorage)
+  const prefillAmt = sessionStorage.getItem('_deposit_prefill') ?? '';
+  if (prefillAmt) sessionStorage.removeItem('_deposit_prefill');
+
+  const [amount, setAmount] = useState(prefillAmt);
   const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'ok' | 'err'; msg: string }>({ type: 'idle', msg: '' });
   const [history, setHistory] = useState<{ id: number; amount: number; status: string; created_at: string }[]>([]);
   const [showConnectNote, setShowConnectNote] = useState(false);
@@ -504,6 +508,17 @@ export default function Profile() {
   const [showSwap, setShowSwap] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
+
+  // Auto-open deposit panel if navigated from store (sessionStorage set by Miners.tsx)
+  useEffect(() => {
+    const amt = sessionStorage.getItem('deposit_amount');
+    if (amt) {
+      sessionStorage.removeItem('deposit_amount');
+      setShowDeposit(true);
+      // Pass amount to DepositPanel via ref storage — component reads it on mount
+      sessionStorage.setItem('_deposit_prefill', amt);
+    }
+  }, []);
 
   function handleLangSelect(value: Lang) {
     setLang(value);

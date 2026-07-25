@@ -136,6 +136,11 @@ router.post("/ads/watched", async (req, res): Promise<void> => {
 
     logger.info({ telegramId: user.id, coinsEarned: settings.rewardCoins }, "ad watched");
 
+    // Update referral conditions (fire-and-forget — don't block the response)
+    import("./referrals").then(m => {
+      m.updateReferralCondition(user.id, "ad").catch(() => {});
+    }).catch(() => {});
+
     res.json({
       ok: true,
       coinsEarned: settings.rewardCoins,

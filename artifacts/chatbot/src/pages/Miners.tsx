@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { X, CheckCircle2, Loader2, Clock, TrendingUp } from 'lucide-react';
+import { useLocation } from 'wouter';
+import { X, CheckCircle2, Loader2, Clock, TrendingUp, Download } from 'lucide-react';
 import { useCoins } from '@/context/CoinsContext';
 import { useWallet } from '@/context/WalletContext';
 import { getInitData, API_BASE, telegramApiPost } from '@/lib/telegramApi';
@@ -368,6 +369,7 @@ export default function Store() {
   const { coins, refreshBalance } = useCoins();
   const { holdingWallet, sessionEarnings } = useWallet();
   const totalGram = holdingWallet + sessionEarnings;
+  const [, navigate] = useLocation();
 
   const [settings, setSettings]           = useState<StoreSettings>(DEFAULT_SETTINGS);
   const [activePackage, setActivePackage] = useState<Package | null>(null);
@@ -428,10 +430,31 @@ export default function Store() {
           </div>
         )}
 
+        {/* Deposit-to-buy hint */}
+        <div
+          className="flex items-center gap-2 mb-3 rounded-xl px-3 py-2.5"
+          style={{ background: 'rgba(245,166,35,0.06)', border: '1px solid rgba(245,166,35,0.15)' }}
+        >
+          <Download className="w-3.5 h-3.5 text-primary/60 flex-shrink-0" />
+          <p className="text-[10px] text-white/40 leading-tight">
+            اضغط على أي باقة للإيداع المباشر عبر TON — سيُضاف الرصيد تلقائياً
+          </p>
+        </div>
+
         {/* Packages grid */}
         <div className="grid grid-cols-2 gap-3 mb-5">
           {PACKAGES.map(pkg => (
-            <PackageCard key={pkg.id} pkg={pkg} settings={settings} onClick={() => setActivePackage(pkg)} />
+            <PackageCard
+              key={pkg.id}
+              pkg={pkg}
+              settings={settings}
+              onClick={() => {
+                // Store deposit amount in sessionStorage then navigate to Profile's deposit panel
+                const gramNeeded = pkg.gram;
+                sessionStorage.setItem('deposit_amount', String(gramNeeded));
+                navigate('/profile');
+              }}
+            />
           ))}
         </div>
 

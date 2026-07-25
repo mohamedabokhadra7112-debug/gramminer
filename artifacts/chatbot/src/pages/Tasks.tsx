@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ClipboardList, CheckCircle2, Circle, ExternalLink, Loader2, Radio, PlayCircle } from 'lucide-react';
+import { ClipboardList, CheckCircle2, Circle, ExternalLink, Loader2, Radio, PlayCircle, Users } from 'lucide-react';
 import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
 import { useWallet } from '@/context/WalletContext';
 import { useCoins } from '@/context/CoinsContext';
@@ -14,6 +14,8 @@ interface Task {
   reward: number;
   isDaily: boolean;
   channelUsername?: string | null;
+  taskType?: string | null;
+  joinLink?: string | null;
 }
 
 interface CompletionInfo {
@@ -66,12 +68,10 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
     setFeedback(null);
 
     try {
-      // Show the actual AdsGram ad (or simulate in dev)
       if (configured) {
         await showAd();
       }
 
-      // Report to backend regardless (backend validates BOT_TOKEN)
       const data = await telegramApiPost<{
         ok: boolean; coinsEarned: number; remainingToday: number; dailyLimit: number;
       }>('/ads/watched', {});
@@ -108,7 +108,6 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
       }}
     >
       <div className="flex items-center justify-between gap-3">
-        {/* Left info */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div
             className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -123,9 +122,8 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
             <div className="text-xs text-muted-foreground mt-0.5">
               +{reward} coin لكل إعلان
             </div>
-            {/* Progress dots */}
             <div className="flex items-center gap-1 mt-1.5">
-              {Array.from({ length: limit }).map((_, i) => (
+              {Array.from({ length: Math.min(limit, 10) }).map((_, i) => (
                 <div
                   key={i}
                   className="rounded-full transition-all"
@@ -142,7 +140,6 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
           </div>
         </div>
 
-        {/* Right button */}
         <button
           onClick={handleWatch}
           disabled={watching || exhausted}
@@ -165,7 +162,106 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
         </button>
       </div>
 
-      {/* Feedback */}
+      {feedback && (
+        <div
+          className="mt-2 text-xs font-medium px-2 py-1 rounded-lg"
+          style={{
+            background: feedback.ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+            color: feedback.ok ? '#4ade80' : '#f87171',
+          }}
+        >
+          {feedback.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Partner Task Card ────────────────────────────────────────────────────────
+function PartnerTaskCard({
+  task,
+  isDone,
+  isCompleting,
+  feedback,
+  onJoin,
+  onVerify,
+}: {
+  task: Task;
+  isDone: boolean;
+  isCompleting: boolean;
+  feedback: { msg: string; ok: boolean } | null;
+  onJoin: () => void;
+  onVerify: () => void;
+}) {
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{
+        background: isDone
+          ? 'linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(0,0,0,0.6) 100%)'
+          : 'linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(0,0,0,0.6) 100%)',
+        border: `1px solid ${isDone ? 'rgba(34,197,94,0.25)' : 'rgba(99,102,241,0.3)'}`,
+      }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div
+            className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background: isDone ? 'rgba(34,197,94,0.15)' : 'rgba(99,102,241,0.15)',
+              border: `1px solid ${isDone ? 'rgba(34,197,94,0.3)' : 'rgba(99,102,241,0.3)'}`,
+            }}
+          >
+            {isDone
+              ? <CheckCircle2 className="w-5 h-5 text-green-400" />
+              : <Radio className="w-5 h-5" style={{ color: '#818cf8' }} />}
+          </div>
+          <div className="min-w-0">
+            <div className={`font-bold text-sm truncate ${isDone ? 'text-white/50 line-through' : 'text-white'}`}>
+              {task.title}
+            </div>
+            {task.description && (
+              <p className="text-xs text-white/40 mt-0.5 truncate">{task.description}</p>
+            )}
+            {task.channelUsername && !isDone && (
+              <p className="text-xs mt-0.5" style={{ color: '#818cf8' }}>📢 @{task.channelUsername.replace('@', '')}</p>
+            )}
+            <div className={`text-xs font-black mt-0.5 ${isDone ? 'text-white/30' : 'text-primary'}`}>
+              +{task.reward} coin
+            </div>
+          </div>
+        </div>
+
+        {!isDone && (
+          <div className="flex flex-col gap-1.5 flex-shrink-0 items-end">
+            <button
+              onClick={onJoin}
+              disabled={isCompleting}
+              className="px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 transition-all active:scale-95"
+              style={{
+                background: 'rgba(99,102,241,0.2)',
+                color: '#a5b4fc',
+                border: '1px solid rgba(99,102,241,0.3)',
+              }}
+            >
+              <ExternalLink className="w-3 h-3" /> انضم
+            </button>
+            <button
+              onClick={onVerify}
+              disabled={isCompleting}
+              className="px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 transition-all active:scale-95"
+              style={{
+                background: 'rgba(245,166,35,0.15)',
+                color: '#F5A623',
+                border: '1px solid rgba(245,166,35,0.3)',
+              }}
+            >
+              {isCompleting ? <Loader2 className="w-3 h-3 animate-spin" /> : '✓ تحقق'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {feedback && (
         <div
           className="mt-2 text-xs font-medium px-2 py-1 rounded-lg"
@@ -183,7 +279,6 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
 
 // ─── Main Tasks Page ──────────────────────────────────────────────────────────
 export default function Tasks() {
-  const { holdingWallet } = useWallet();
   const { addCoins } = useCoins();
   const [tasks, setTasks]     = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,7 +294,6 @@ export default function Tasks() {
     return () => clearInterval(id);
   }, []);
 
-  // ── Load completed tasks ───────────────────────────────────────────────────
   const loadCompleted = useCallback(async () => {
     const initData = getInitData();
     if (!initData) {
@@ -241,14 +335,12 @@ export default function Tasks() {
       .finally(() => setLoading(false));
   }, [loadCompleted]);
 
-  // ── Complete a task ────────────────────────────────────────────────────────
   const handleComplete = async (task: Task) => {
     if (completing !== null) return;
     setCompleting(task.id);
 
     const initData = getInitData();
     if (!initData) {
-      // Offline fallback
       try {
         const saved = localStorage.getItem('gm_tasks_done');
         const ids: number[] = saved ? JSON.parse(saved) : [];
@@ -265,9 +357,10 @@ export default function Tasks() {
       return;
     }
 
-    // Channel tasks: open link first
+    // Channel / partner tasks: open link first
     if (task.channelUsername && task.channelUsername.trim()) {
-      const link = `https://t.me/${task.channelUsername.replace('@', '')}`;
+      const handle = task.channelUsername.replace('@', '');
+      const link = task.joinLink ?? `https://t.me/${handle}`;
       window.open(link, '_blank');
       setCompleting(null);
       return;
@@ -294,7 +387,6 @@ export default function Tasks() {
     }
   };
 
-  // ── Verify channel membership ──────────────────────────────────────────────
   const handleChannelVerify = async (task: Task) => {
     if (completing !== null) return;
     setCompleting(task.id);
@@ -319,6 +411,10 @@ export default function Tasks() {
     }
   };
 
+  // Split tasks into partner and regular
+  const partnerTasks  = tasks.filter(t => t.taskType === 'partner');
+  const regularTasks  = tasks.filter(t => t.taskType !== 'partner');
+
   return (
     <div className="min-h-full flex flex-col relative w-full px-4 pt-6">
       <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
@@ -333,9 +429,39 @@ export default function Tasks() {
 
       <div className="relative z-10 flex-1 overflow-y-auto space-y-3 pb-8">
 
-        {/* ── Watch Ad card (always visible at top) ── */}
+        {/* ── Watch Ad card ── */}
         <WatchAdCard onCoinsEarned={n => addCoins(n)} />
 
+        {/* ── Partners section ── */}
+        {partnerTasks.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 pt-1">
+              <Users className="w-4 h-4" style={{ color: '#818cf8' }} />
+              <span className="text-xs font-black tracking-widest uppercase" style={{ color: '#818cf8' }}>
+                الشركاء
+              </span>
+              <div className="flex-1 h-px" style={{ background: 'rgba(99,102,241,0.25)' }} />
+            </div>
+            {partnerTasks.map(task => {
+              const completion = completions.get(task.id);
+              const isDone = completion !== undefined;
+              const fb = feedback?.id === task.id ? feedback : null;
+              return (
+                <PartnerTaskCard
+                  key={task.id}
+                  task={task}
+                  isDone={isDone}
+                  isCompleting={completing === task.id}
+                  feedback={fb}
+                  onJoin={() => handleComplete(task)}
+                  onVerify={() => handleChannelVerify(task)}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Loading / error ── */}
         {loading && (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -348,14 +474,24 @@ export default function Tasks() {
           </div>
         )}
 
-        {!loading && !error && tasks.length === 0 && (
+        {!loading && !error && regularTasks.length === 0 && (
           <div className="text-center py-8">
             <ClipboardList className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-muted-foreground text-sm">لا توجد مهام حالياً</p>
           </div>
         )}
 
-        {!loading && tasks.map(task => {
+        {/* ── Regular tasks section header ── */}
+        {regularTasks.length > 0 && (
+          <div className="flex items-center gap-2 pt-1">
+            <ClipboardList className="w-4 h-4 text-primary/60" />
+            <span className="text-xs font-black tracking-widest uppercase text-primary/60">المهام</span>
+            <div className="flex-1 h-px bg-primary/10" />
+          </div>
+        )}
+
+        {/* ── Regular tasks ── */}
+        {!loading && regularTasks.map(task => {
           const completion  = completions.get(task.id);
           const isCompleting = completing === task.id;
           const fb = feedback?.id === task.id ? feedback : null;
