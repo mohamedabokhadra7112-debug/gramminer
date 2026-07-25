@@ -138,7 +138,7 @@ function LeaderboardModal({
         </div>
 
         {/* Subtitle */}
-        <p className="text-xs text-white/40 px-5 pb-3 font-medium">أفضل 20 مستخدم بالرصيد الأعلى</p>
+        <p className="text-xs text-white/40 px-5 pb-3 font-medium">أفضل 20 مستخدم بعدد الـ coin الأعلى</p>
 
         {/* List */}
         <div className="overflow-y-auto flex-1 px-4 pb-8 space-y-2">
@@ -202,9 +202,9 @@ function LeaderboardModal({
                   {/* Balance */}
                   <div className="text-right flex-shrink-0">
                     <div className="text-sm font-black text-primary">
-                      {u.balance.toFixed(4)}
+                      {Math.floor(u.balance).toLocaleString()}
                     </div>
-                    <div className="text-[10px] text-white/40 font-semibold">gram</div>
+                    <div className="text-[10px] text-white/40 font-semibold">coin</div>
                   </div>
                 </div>
               );
