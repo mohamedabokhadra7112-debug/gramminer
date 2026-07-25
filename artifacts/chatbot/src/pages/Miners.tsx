@@ -1,331 +1,315 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, Zap, ShoppingBag, Package, CheckCircle2, Loader2, Wallet } from 'lucide-react';
+import { ShoppingBag, CheckCircle2, Loader2, Clock } from 'lucide-react';
 import { useCoins } from '@/context/CoinsContext';
 import { useWallet } from '@/context/WalletContext';
-import { formatGram } from '@/lib/utils';
 import { getInitData, API_BASE, telegramApiPost } from '@/lib/telegramApi';
-import { useTonConnectUI } from '@tonconnect/ui-react';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface StoreProduct {
+// ─── Rate & Plans ─────────────────────────────────────────────────────────────
+const COINS_PER_GRAM = 700; // 1 gram = 700 coin
+
+interface Plan {
+  id: string;
+  label: string;
+  sublabel: string;
+  dayIcon: string;
+  gram: number;
+  coins: number;
+}
+
+const PLANS: Plan[] = [
+  { id: 'daily',    label: 'DAILY',    sublabel: '',   dayIcon: '',   gram: 0.05, coins: 35   },
+  { id: 'monthly',  label: '1 MONTH',  sublabel: '30', dayIcon: '30', gram: 1.50, coins: 1050 },
+  { id: '3months',  label: '3 MONTHS', sublabel: '90', dayIcon: '90', gram: 4.50, coins: 3150 },
+];
+
+// ─── Purchase history row ─────────────────────────────────────────────────────
+interface SwapRecord {
   id: number;
-  name: string;
-  description: string | null;
-  coinPrice: number;
-  gramValue: number;
-  dailyMiningPct: number;
-  isEnabled: boolean;
+  gram_amount: number;
+  coins_amount: number;
+  created_at: string;
 }
 
-interface UserPurchase {
-  id: number;
-  productId: number;
-  productName: string;
-  coinsPaid: number;
-  gramValue: number;
-  dailyMiningPct: number;
-  purchasedAt: string;
-}
+// ─── Main Store Page ──────────────────────────────────────────────────────────
+export default function Store() {
+  const { refreshBalance } = useCoins();
+  const { holdingWallet, sessionEarnings } = useWallet();
+  const totalGram = holdingWallet + sessionEarnings;
 
-function formatCountdown(ms: number): string {
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  const s = Math.floor((ms % 60_000) / 1_000);
-  return [h, m, s].map(n => String(n).padStart(2, '0')).join(':');
-}
+  const [selected, setSelected] = useState<string>('monthly');
+  const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'ok' | 'err'; msg: string }>({
+    type: 'idle', msg: '',
+  });
+  const [history, setHistory] = useState<SwapRecord[]>([]);
 
-// 700 coin = 1 gram (matches the mining formula)
-const COINS_PER_GRAM = 700;
+  const plan = PLANS.find(p => p.id === selected)!;
+  const canAfford = totalGram >= plan.gram;
 
-// ─── Main Miners/Store Page ───────────────────────────────────────────────────
-export default function Miners() {
-  const { coins, refreshBalance } = useCoins();
-  const { walletAddress } = useWallet();
-  const [tonConnectUI] = useTonConnectUI();
-
-  const [products, setProducts] = useState<StoreProduct[]>([]);
-  const [purchases, setPurchases] = useState<UserPurchase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [buying, setBuying] = useState<number | null>(null);
-  const [paying, setPaying] = useState<number | null>(null);   // gram payment in progress
-  const [feedback, setFeedback] = useState<{ id: number; msg: string; ok: boolean } | null>(null);
-
-  const loadData = useCallback(async () => {
+  // Load recent gram→coin swap history for the user
+  const loadHistory = useCallback(async () => {
     const initData = getInitData();
-    const headers: Record<string, string> = {};
-    if (initData) headers['x-init-data'] = initData;
-
+    if (!initData) return;
     try {
-      const [prodRes, purchRes] = await Promise.all([
-        fetch(`${API_BASE}/api/store/products`, { headers }),
-        initData ? fetch(`${API_BASE}/api/store/purchases`, { headers }) : Promise.resolve(null),
-      ]);
-
-      if (prodRes.ok) {
-        const data = await prodRes.json() as StoreProduct[];
-        setProducts(Array.isArray(data) ? data.filter(p => p.isEnabled) : []);
-      }
-      if (purchRes && purchRes.ok) {
-        const data = await purchRes.json() as UserPurchase[];
-        setPurchases(Array.isArray(data) ? data : []);
+      const res = await fetch(`${API_BASE}/api/telegram/swap/history`, {
+        headers: { 'x-init-data': initData },
+      });
+      if (res.ok) {
+        const data = await res.json() as SwapRecord[];
+        if (Array.isArray(data)) {
+          setHistory(data.filter(h => h.gram_amount > 0).slice(0, 5));
+        }
       }
     } catch { /* best-effort */ }
-    finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  // ── Buy with coins ────────────────────────────────────────────────────────
-  const handleBuy = async (product: StoreProduct) => {
-    if (coins < product.coinPrice) return;
-    setBuying(product.id);
-    try {
-      const data = await telegramApiPost<{ ok: boolean; message?: string }>('/store/purchase', { productId: product.id });
-      if (data.ok) {
-        setFeedback({ id: product.id, msg: `✅ تم الشراء بنجاح!`, ok: true });
-        await loadData();
-        await refreshBalance();
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setFeedback({ id: product.id, msg: `❌ ${msg}`, ok: false });
-    } finally {
-      setBuying(null);
-      setTimeout(() => setFeedback(null), 3500);
+  // ── Pay with gram balance ─────────────────────────────────────────────────
+  const handlePay = async () => {
+    if (!canAfford || status.type === 'loading') return;
+    const initData = getInitData();
+    if (!initData) {
+      setStatus({ type: 'err', msg: '❌ افتح التطبيق من تيليجرام' });
+      return;
     }
-  };
-
-  // ── Pay with gram wallet (TON Connect) ───────────────────────────────────
-  const handleGramPay = async (product: StoreProduct) => {
-    setPaying(product.id);
-    setFeedback(null);
+    setStatus({ type: 'loading', msg: '' });
     try {
-      // If no wallet connected, open TonConnect modal first
-      if (!tonConnectUI.connected) {
-        await tonConnectUI.openModal();
-        setPaying(null);
-        setFeedback({ id: product.id, msg: 'وصّل محفظتك أولاً ثم اضغط مرة ثانية', ok: false });
-        return;
-      }
-
-      // gramPrice = coinPrice / 700, in nanotons (1 gram = 1e9 nanotons on TON)
-      const gramPrice = product.coinPrice / COINS_PER_GRAM;
-      const nanotons  = BigInt(Math.round(gramPrice * 1e9));
-
-      // Owner/recipient address from env — falls back to zero address for preview
-      const toAddress = import.meta.env.VITE_OWNER_WALLET ?? '0:0000000000000000000000000000000000000000000000000000000000000000';
-
-      const result = await tonConnectUI.sendTransaction({
-        validUntil: Math.floor(Date.now() / 1000) + 600,
-        messages: [{
-          address: toAddress,
-          amount: nanotons.toString(),
-          payload: btoa(`store_purchase:${product.id}`),
-        }],
+      await telegramApiPost<{ ok: boolean }>('/telegram/swap', {
+        direction: 'gram_to_coins',
+        amount: plan.gram,
       });
-
-      // Submit boc to backend — it will credit coins and record the purchase
-      const boc = result.boc;
-      const resp = await telegramApiPost<{ ok: boolean; coins?: number; message?: string }>(
-        '/store/gram-purchase',
-        { productId: product.id, boc },
-      );
-
-      if (resp.ok) {
-        setFeedback({ id: product.id, msg: `✅ تم الدفع! حصلت على ${product.coinPrice.toLocaleString()} coin`, ok: true });
-        await loadData();
-        await refreshBalance();
-      } else {
-        setFeedback({ id: product.id, msg: `⚠️ المعاملة أُرسلت — جارٍ التحقق يدوياً`, ok: false });
-      }
+      setStatus({ type: 'ok', msg: `✅ تم الشراء بنجاح! +${plan.coins.toLocaleString()} coin` });
+      await refreshBalance();
+      await loadHistory();
+      setTimeout(() => setStatus({ type: 'idle', msg: '' }), 3500);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes('User rejected') || msg.includes('reject')) {
-        setFeedback({ id: product.id, msg: `❌ تم الإلغاء`, ok: false });
-      } else {
-        setFeedback({ id: product.id, msg: `❌ ${msg}`, ok: false });
-      }
-    } finally {
-      setPaying(null);
-      setTimeout(() => setFeedback(null), 4000);
+      setStatus({ type: 'err', msg: `❌ ${msg}` });
+      setTimeout(() => setStatus({ type: 'idle', msg: '' }), 3000);
     }
   };
-
-  // Coin-based daily income displayed at top (matches WalletContext formula)
-  const dailyIncome = coins > 0 ? Math.round((coins / 14_000) * 1_000_000) / 1_000_000 : 0;
 
   return (
-    <div className="min-h-full flex flex-col relative w-full px-4 pt-5">
-      <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
+    <div
+      className="min-h-full flex flex-col items-center relative w-full"
+      style={{ backgroundColor: 'transparent' }}
+    >
+      {/* ── Dark overlay ── */}
+      <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.72)' }} />
 
-      {/* ── Header ── */}
-      <div className="relative z-10 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-2xl font-black text-white tracking-tight">⛏️ Gram Store</h1>
-          <div className="flex items-center gap-1.5 bg-black/50 border border-yellow-500/30 rounded-xl px-3 py-1.5">
-            <Zap className="w-3.5 h-3.5 text-yellow-400" />
-            <span className="text-yellow-400 font-bold text-sm">{coins.toLocaleString()} coin</span>
-          </div>
+      <div className="relative z-10 w-full max-w-sm px-4 pt-4 pb-28 flex flex-col items-center">
+
+        {/* ── Gram balance chip ── */}
+        <div className="self-end mb-2 flex items-center gap-1.5 bg-black/60 border border-primary/30 rounded-xl px-3 py-1.5">
+          <span className="text-primary font-bold text-sm">{totalGram.toFixed(4)}</span>
+          <span className="text-white/50 text-xs">gram</span>
         </div>
 
-        {/* Mining summary panel */}
-        <div className="bg-secondary/50 border border-white/10 rounded-2xl p-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className={`font-bold text-sm ${coins > 0 ? 'text-green-400' : 'text-gray-400'}`}>
-                {coins > 0 ? '🟢 التعدين نشط' : '🔴 لا يوجد تعدين'}
-              </div>
-              <div className="text-gray-400 text-xs mt-0.5">
-                {coins > 0
-                  ? `+${formatGram(dailyIncome, 6)} gram / 24h`
-                  : 'اشترِ coin لبدء التعدين'}
-              </div>
+        {/* ── Main card ── */}
+        <div
+          className="w-full rounded-3xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(160deg, #1a1205 0%, #0d0a04 60%, #120e06 100%)',
+            border: '1px solid rgba(245,166,35,0.2)',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.7)',
+          }}
+        >
+          {/* ── Coin image + amount ── */}
+          <div className="flex flex-col items-center pt-8 pb-5 px-6">
+            {/* Coin icon */}
+            <div
+              className="w-28 h-28 rounded-full flex items-center justify-center mb-5"
+              style={{
+                background: 'radial-gradient(circle at 38% 38%, #ffd96a 0%, #c8870a 55%, #7a4e00 100%)',
+                boxShadow: '0 0 40px rgba(245,166,35,0.5), inset 0 -4px 10px rgba(0,0,0,0.4)',
+              }}
+            >
+              <span style={{ fontSize: 52, lineHeight: 1 }}>⛏️</span>
             </div>
-            <div className="text-right">
-              <div className="text-white text-xs font-semibold">{coins.toLocaleString()} coin</div>
-              <div className="text-gray-500 text-[10px]">5% يومياً ÷ 700</div>
+
+            {/* Amount */}
+            <div
+              className="font-black leading-none"
+              style={{
+                fontSize: 72,
+                background: 'linear-gradient(180deg, #FFE082 0%, #F5A623 55%, #C67E10 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                textShadow: 'none',
+                letterSpacing: '-2px',
+              }}
+            >
+              {COINS_PER_GRAM}
+            </div>
+
+            {/* COIN label with divider lines */}
+            <div className="flex items-center gap-3 mt-1">
+              <div style={{ width: 40, height: 1, background: 'rgba(245,166,35,0.4)' }} />
+              <span className="text-xs font-black tracking-[0.3em] text-primary/80">COIN</span>
+              <div style={{ width: 40, height: 1, background: 'rgba(245,166,35,0.4)' }} />
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* ── My Purchases ── */}
-      {purchases.length > 0 && (
-        <div className="relative z-10 mb-4">
-          <h2 className="text-sm font-black text-white/70 mb-2 flex items-center gap-1.5">
-            <Package className="w-4 h-4 text-primary" /> مشترياتي
-          </h2>
-          <div className="space-y-2">
-            {purchases.map(p => (
-              <div key={p.id} className="bg-secondary/60 backdrop-blur-sm border border-primary/20 rounded-2xl p-3 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 className="w-5 h-5 text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-white font-bold text-sm truncate">{p.productName ?? `باقة #${p.productId}`}</div>
-                  <div className="text-green-400 text-xs">{p.coinsPaid.toLocaleString()} coin · {formatGram(p.gramValue, 1)} gram</div>
-                  <div className="text-white/40 text-[10px]">{new Date(p.purchasedAt).toLocaleDateString('ar')}</div>
-                </div>
-              </div>
-            ))}
+          {/* ── Plans list ── */}
+          <div className="mx-4 mb-4 rounded-2xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            {PLANS.map((p, i) => {
+              const isSelected = selected === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => setSelected(p.id)}
+                  className="w-full flex items-center justify-between px-4 py-4 transition-all active:scale-[0.98]"
+                  style={{
+                    borderBottom: i < PLANS.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                    background: isSelected ? 'rgba(245,166,35,0.08)' : 'transparent',
+                  }}
+                >
+                  {/* Left — icon + label */}
+                  <div className="flex items-center gap-3">
+                    {/* Calendar icon */}
+                    <div
+                      className="flex-shrink-0 flex flex-col items-center justify-center rounded-lg"
+                      style={{
+                        width: 36, height: 36,
+                        background: isSelected ? 'rgba(245,166,35,0.15)' : 'rgba(255,255,255,0.06)',
+                        border: `1px solid ${isSelected ? 'rgba(245,166,35,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      }}
+                    >
+                      {p.dayIcon ? (
+                        <span
+                          className="font-black leading-none"
+                          style={{ fontSize: 11, color: isSelected ? '#F5A623' : 'rgba(255,255,255,0.5)' }}
+                        >
+                          {p.dayIcon}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 16, lineHeight: 1 }}>📅</span>
+                      )}
+                    </div>
+
+                    {/* Label */}
+                    <span
+                      className="font-black text-sm tracking-wide"
+                      style={{ color: isSelected ? '#FFFFFF' : 'rgba(255,255,255,0.55)' }}
+                    >
+                      {p.label}
+                    </span>
+                  </div>
+
+                  {/* Right — price */}
+                  <div className="text-right">
+                    <div
+                      className="font-black text-base leading-tight"
+                      style={{
+                        color: isSelected ? '#F5A623' : 'rgba(245,166,35,0.55)',
+                      }}
+                    >
+                      {p.gram.toFixed(2)} Gram
+                    </div>
+                    <div className="text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                      {p.coins.toFixed(2)} COIN
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        </div>
-      )}
 
-      {/* ── Store Products ── */}
-      <div className="relative z-10 flex-1 pb-6">
-        <h2 className="text-sm font-black text-white/70 mb-2 flex items-center gap-1.5">
-          <ShoppingBag className="w-4 h-4 text-primary" /> المتجر
-        </h2>
+          {/* ── Status message ── */}
+          {status.msg && (
+            <div
+              className="mx-4 mb-3 rounded-xl p-2.5 text-center text-sm font-bold"
+              style={{
+                background: status.type === 'ok' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                border: `1px solid ${status.type === 'ok' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                color: status.type === 'ok' ? '#4ade80' : '#f87171',
+              }}
+            >
+              {status.msg}
+            </div>
+          )}
 
-        {loading && (
-          <div className="flex justify-center py-10">
-            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          </div>
-        )}
+          {/* ── Not enough gram notice ── */}
+          {!canAfford && status.type === 'idle' && (
+            <div className="mx-4 mb-3 text-center text-xs font-semibold" style={{ color: 'rgba(239,68,68,0.7)' }}>
+              ❌ رصيدك {totalGram.toFixed(4)} gram · تحتاج {plan.gram.toFixed(2)} gram
+            </div>
+          )}
 
-        {!loading && products.length === 0 && (
-          <div className="text-center py-10 text-muted-foreground text-sm">
-            لا توجد منتجات متاحة حالياً
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {products.map(product => {
-            const canAfford  = coins >= product.coinPrice;
-            const gramPrice  = product.coinPrice / COINS_PER_GRAM;
-            const fb         = feedback?.id === product.id ? feedback : null;
-            const isBuying   = buying === product.id;
-            const isPaying   = paying === product.id;
-            const hasWallet  = !!walletAddress || tonConnectUI.connected;
-
-            return (
+          {/* ── PAY WITH GRAM button ── */}
+          <div className="px-4 pb-5">
+            <button
+              onClick={handlePay}
+              disabled={!canAfford || status.type === 'loading'}
+              className="w-full flex items-center justify-center gap-3 rounded-2xl py-4 transition-all active:scale-[0.98]"
+              style={{
+                background: canAfford && status.type !== 'loading'
+                  ? 'linear-gradient(135deg, #F5A623 0%, #E8920D 100%)'
+                  : 'rgba(100,80,20,0.4)',
+                boxShadow: canAfford ? '0 4px 20px rgba(245,166,35,0.35)' : 'none',
+                cursor: canAfford && status.type !== 'loading' ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {/* TON-style icon */}
               <div
-                key={product.id}
-                className={`bg-secondary/60 backdrop-blur-sm border rounded-2xl p-4 transition-all ${
-                  canAfford ? 'border-primary/30' : 'border-white/10'
-                }`}
+                className="flex-shrink-0 flex items-center justify-center rounded-full"
+                style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.2)' }}
               >
-                <div className="flex items-start gap-3">
-                  {/* Icon */}
-                  <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0 text-3xl">
-                    {product.name.split(' ')[0]}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-white font-bold text-sm leading-tight">{product.name}</div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-yellow-400 text-xs font-bold">
-                        🪙 {product.coinPrice.toLocaleString()} coin
-                      </span>
-                      <span className="text-white/30 text-xs">أو</span>
-                      <span className="text-blue-400 text-xs font-bold">
-                        💎 {gramPrice % 1 === 0 ? gramPrice : gramPrice.toFixed(2)} gram
-                      </span>
-                    </div>
-                    <div className="text-green-400 text-[11px] mt-0.5">
-                      +{formatGram(product.gramValue * (product.dailyMiningPct ?? 0.05), 4)} gram / يوم
-                    </div>
-                  </div>
-                </div>
-
-                {/* Buy buttons */}
-                <div className="mt-3 flex gap-2">
-                  {/* Pay with coins */}
-                  <button
-                    onClick={() => handleBuy(product)}
-                    disabled={isBuying || isPaying || !canAfford}
-                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                      canAfford && !isPaying
-                        ? 'bg-primary text-black shadow-[0_0_10px_rgba(245,166,35,0.3)] hover:opacity-90'
-                        : 'bg-gray-700/60 text-gray-500 cursor-not-allowed'
-                    }`}
-                  >
-                    {isBuying
-                      ? <Loader2 className="w-3 h-3 animate-spin" />
-                      : <><Zap className="w-3 h-3" /> {canAfford ? 'شراء بـ Coin' : `ناقص ${(product.coinPrice - coins).toLocaleString()}`}</>
-                    }
-                  </button>
-
-                  {/* Pay with gram wallet */}
-                  <button
-                    onClick={() => handleGramPay(product)}
-                    disabled={isBuying || isPaying}
-                    className="flex-1 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 bg-blue-600/80 text-white hover:bg-blue-500/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isPaying
-                      ? <Loader2 className="w-3 h-3 animate-spin" />
-                      : <><Wallet className="w-3 h-3" /> {hasWallet ? `دفع ${gramPrice % 1 === 0 ? gramPrice : gramPrice.toFixed(2)} gram` : 'وصّل محفظة'}</>
-                    }
-                  </button>
-                </div>
-
-                {/* Feedback */}
-                {fb && (
-                  <div className={`mt-2 text-xs font-medium px-2 py-1 rounded-lg ${
-                    fb.ok ? 'text-success bg-success/10' : 'text-yellow-400 bg-yellow-500/10'
-                  }`}>
-                    {fb.msg}
-                  </div>
-                )}
+                {status.type === 'loading'
+                  ? <Loader2 className="w-5 h-5 text-white animate-spin" />
+                  : <span style={{ fontSize: 18 }}>◈</span>
+                }
               </div>
-            );
-          })}
-        </div>
-      </div>
 
-      {/* ── Info footer ── */}
-      <div className="relative z-10 mb-4 rounded-2xl bg-black/50 border border-white/10 p-4">
-        <div className="grid grid-cols-2 gap-y-2 text-xs text-gray-400">
-          <span>معادلة التحويل</span>
-          <span className="text-right font-bold text-primary">700 coin = 1 gram</span>
-          <span>معدل التعدين</span>
-          <span className="text-right text-green-400">5% يومياً من الـ coin</span>
-          <span>0 coin</span>
-          <span className="text-right text-red-400">= 0 تعدين</span>
-          <span>طريقة الدفع</span>
-          <span className="text-right text-blue-400">Coin أو Gram Wallet</span>
+              {/* Label */}
+              <div className="text-left">
+                <div className="text-black font-black text-base leading-tight">
+                  {status.type === 'loading' ? 'جارٍ الشراء...' : `${plan.gram.toFixed(2)} GRAM`}
+                </div>
+                <div className="text-black/60 font-bold text-[11px] tracking-wider">
+                  {status.type === 'loading' ? 'يرجى الانتظار' : 'PAY WITH GRAM'}
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Purchase history ── */}
+        {history.length > 0 && (
+          <div className="w-full mt-5">
+            <p className="text-xs font-black text-white/50 mb-2 flex items-center gap-1.5 uppercase tracking-widest">
+              <Clock className="w-3.5 h-3.5" /> آخر المشتريات
+            </p>
+            <div className="space-y-2">
+              {history.map(h => (
+                <div
+                  key={h.id}
+                  className="flex items-center justify-between rounded-xl px-4 py-3"
+                  style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  <div>
+                    <div className="text-white font-bold text-sm">
+                      {h.gram_amount.toFixed(2)} gram → <span className="text-primary">{h.coins_amount.toLocaleString()} coin</span>
+                    </div>
+                    <div className="text-white/30 text-[10px]">
+                      {new Date(h.created_at).toLocaleDateString('ar')}
+                    </div>
+                  </div>
+                  <CheckCircle2 className="w-4 h-4 text-primary/60 flex-shrink-0" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Info note ── */}
+        <div
+          className="w-full mt-4 rounded-xl px-4 py-3 text-center"
+          style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <p className="text-xs text-white/40 font-medium">
+            معدل التحويل الثابت: <span className="text-primary font-bold">700 COIN = 1 Gram</span>
+          </p>
         </div>
       </div>
     </div>
