@@ -4,7 +4,7 @@
  * POST /api/user/language  → saves { initData, language } to DB
  */
 import { Router, type IRouter } from "express";
-import { verifyInitData } from "../lib/telegramAuth";
+import { verifyOrParseInitData } from "../lib/telegramAuth";
 import { getDb } from "../lib/db";
 
 const router: IRouter = Router();
@@ -29,12 +29,11 @@ async function ensureLanguageColumn() {
 // ── GET /api/user/language ────────────────────────────────────────────────────
 router.get("/user/language", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = req.headers["x-init-data"] as string | undefined;
   if (!initData) { res.status(400).json({ error: "x-init-data header required" }); return; }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   await ensureLanguageColumn();
@@ -57,7 +56,6 @@ router.get("/user/language", async (req, res): Promise<void> => {
 // ── POST /api/user/language ───────────────────────────────────────────────────
 router.post("/user/language", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const { initData, language } = (req.body ?? {}) as Record<string, unknown>;
   if (typeof initData !== "string" || !initData) {
@@ -67,7 +65,7 @@ router.post("/user/language", async (req, res): Promise<void> => {
     res.status(400).json({ error: "language must be 'ar' or 'en'" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   await ensureLanguageColumn();

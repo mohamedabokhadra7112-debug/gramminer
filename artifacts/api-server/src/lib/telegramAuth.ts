@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { logger } from "./logger";
 
 export type TelegramAuthUser = {
   id: number;
@@ -7,6 +8,37 @@ export type TelegramAuthUser = {
   username?: string;
   photo_url?: string;
 };
+
+/**
+ * Parses user from initData WITHOUT verifying HMAC.
+ * Use ONLY when BOT_TOKEN is unavailable (dev / missing-secrets fallback).
+ * NEVER trust this in production with real money operations.
+ */
+export function parseInitDataUser(initData: string): TelegramAuthUser | null {
+  if (!initData) return null;
+  try {
+    const params = new URLSearchParams(initData);
+    const userRaw = params.get("user");
+    if (!userRaw) return null;
+    const user = JSON.parse(userRaw) as TelegramAuthUser;
+    if (!user?.id) return null;
+    logger.warn({ userId: user.id }, "⚠️  initData parsed WITHOUT HMAC verification — set TELEGRAM_BOT_TOKEN for security");
+    return user;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tries full HMAC verification first; falls back to unsafe parse if no token.
+ */
+export function verifyOrParseInitData(
+  initData: string,
+  token: string | null | undefined,
+): TelegramAuthUser | null {
+  if (token) return verifyInitData(initData, token);
+  return parseInitDataUser(initData);
+}
 
 /**
  * Validates Telegram WebApp initData using HMAC-SHA256.

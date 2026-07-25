@@ -11,7 +11,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { verifyInitData } from "../lib/telegramAuth";
+import { verifyOrParseInitData } from "../lib/telegramAuth";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { getDb } from "../lib/db";
 import { logger } from "../lib/logger";
@@ -67,10 +67,15 @@ function getBotToken() {
 // ── POST /api/telegram/swap ───────────────────────────────────────────────────
 router.post("/telegram/swap", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
-  const { initData, direction, amount } = (req.body ?? {}) as Record<string, unknown>;
-  if (typeof initData !== "string" || !initData) {
+  // Accept initData from body OR x-init-data header
+  const bodyData   = (req.body ?? {}) as Record<string, unknown>;
+  const initData   = (typeof bodyData["initData"] === "string" ? bodyData["initData"] : null)
+                  ?? (req.headers["x-init-data"] as string | undefined)
+                  ?? "";
+  const { direction, amount } = bodyData;
+
+  if (!initData) {
     res.status(400).json({ error: "initData required" }); return;
   }
   if (direction !== "gram_to_coins" && direction !== "coins_to_gram") {
@@ -81,7 +86,8 @@ router.post("/telegram/swap", async (req, res): Promise<void> => {
     res.status(400).json({ error: "amount must be positive" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  // Verify with HMAC if token available; fall back to unsafe parse (dev mode)
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   await ensureSwapSchema();
@@ -166,10 +172,9 @@ router.post("/telegram/swap", async (req, res): Promise<void> => {
 // ── GET /api/telegram/swap/history ───────────────────────────────────────────
 router.get("/telegram/swap/history", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.json([]); return; }
   const initData = req.headers["x-init-data"] as string | undefined;
   if (!initData) { res.json([]); return; }
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.json([]); return; }
 
   await ensureSwapSchema();
@@ -188,7 +193,7 @@ router.get("/telegram/swap/history", async (req, res): Promise<void> => {
 
 // ── Admin swap rate endpoints ─────────────────────────────────────────────────
 const adminRouter: IRouter = Router();
-adminRouter.use(requireAdmin);
+adminRouter.use("/admin", requireAdmin);
 
 adminRouter.get("/admin/swap/rate", async (_req, res) => {
   try {
@@ -219,6 +224,8 @@ adminRouter.post("/admin/swap/rate", async (req, res): Promise<void> => {
   }
 });
 
+// Scope admin sub-router to /admin prefix so requireAdmin never intercepts
+// non-admin swap routes
 router.use(adminRouter);
 
 export default router;

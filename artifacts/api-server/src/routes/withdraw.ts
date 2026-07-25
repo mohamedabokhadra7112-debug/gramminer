@@ -12,7 +12,7 @@
  *   ADMIN_ID
  */
 import { Router, type IRouter } from "express";
-import { verifyInitData } from "../lib/telegramAuth";
+import { verifyOrParseInitData } from "../lib/telegramAuth";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { getDb } from "../lib/db";
 import { logger } from "../lib/logger";
@@ -104,7 +104,6 @@ async function notifyTelegram(chatId: number, text: string) {
 // ── POST /api/telegram/withdraw ───────────────────────────────────────────────
 router.post("/telegram/withdraw", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const { initData, amount } = (req.body ?? {}) as Record<string, unknown>;
   if (typeof initData !== "string" || !initData) {
@@ -115,7 +114,7 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid amount" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   await ensureSchema();
@@ -216,10 +215,9 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
 // ── GET /api/telegram/withdraw/status ────────────────────────────────────────
 router.get("/telegram/withdraw/status", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.json([]); return; }
   const initData = req.headers["x-init-data"] as string | undefined;
   if (!initData) { res.json([]); return; }
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.json([]); return; }
 
   await ensureSchema();

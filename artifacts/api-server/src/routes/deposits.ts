@@ -361,7 +361,7 @@ router.get("/telegram/deposit/status", async (req, res): Promise<void> => {
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 const adminRouter: IRouter = Router();
-adminRouter.use(requireAdmin);
+adminRouter.use("/admin", requireAdmin);
 
 // GET /api/admin/deposits
 adminRouter.get("/admin/deposits", async (_req, res) => {

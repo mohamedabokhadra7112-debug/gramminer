@@ -10,7 +10,7 @@
  *   DELETE /api/admin/tasks/:id     — admin: delete task
  */
 import { Router, type IRouter } from "express";
-import { verifyInitData } from "../lib/telegramAuth";
+import { verifyOrParseInitData } from "../lib/telegramAuth";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { getDb } from "../lib/db";
 import { logger } from "../lib/logger";
@@ -68,7 +68,6 @@ router.get("/tasks", async (_req, res) => {
 // ── POST /api/tasks/complete ──────────────────────────────────────────────────
 router.post("/tasks/complete", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const { initData, taskId } = (req.body ?? {}) as Record<string, unknown>;
   if (typeof initData !== "string" || !initData) {
@@ -78,7 +77,7 @@ router.post("/tasks/complete", async (req, res): Promise<void> => {
     res.status(400).json({ error: "taskId required" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   await ensureSchema();
@@ -202,12 +201,8 @@ router.get("/tasks/completed", async (req, res): Promise<void> => {
   const token = getBotToken();
   const initData = req.headers["x-init-data"] as string | undefined;
 
-  let userId: number | null = null;
-  if (token && initData) {
-    const user = verifyInitData(initData, token);
-    userId = user?.id ?? null;
-  }
-
+  const user = initData ? verifyOrParseInitData(initData, token) : null;
+  const userId = user?.id ?? null;
   if (!userId) { res.json([]); return; }
 
   await ensureSchema();
@@ -235,7 +230,7 @@ router.get("/tasks/completed", async (req, res): Promise<void> => {
 
 // ── Admin task CRUD ───────────────────────────────────────────────────────────
 const adminRouter: IRouter = Router();
-adminRouter.use(requireAdmin);
+adminRouter.use("/admin", requireAdmin);
 
 // GET /api/admin/tasks
 adminRouter.get("/admin/tasks", async (_req, res) => {

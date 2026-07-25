@@ -479,7 +479,7 @@ router.get("/telegram/mining/status", async (req, res): Promise<void> => {
 
 // ── Admin store product CRUD ──────────────────────────────────────────────────
 const adminRouter: IRouter = Router();
-adminRouter.use(requireAdmin);
+adminRouter.use("/admin", requireAdmin);
 
 // GET /api/admin/store/products
 adminRouter.get("/admin/store/products", async (_req, res) => {

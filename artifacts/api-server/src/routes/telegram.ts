@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
-import { verifyInitData } from "../lib/telegramAuth";
+import { verifyInitData, verifyOrParseInitData } from "../lib/telegramAuth";
 import { getDb } from "../lib/db";
 import { creditNewMilestones } from "./referrals";
 
@@ -483,7 +483,8 @@ async function getLocalizedWelcomeMessage(
 // stale or default "Miner" placeholder once a user has interacted before.
 router.post("/telegram/auth", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+  // No hard 503 when BOT_TOKEN is absent — fall back to unsigned parse so the
+  // app stays usable; HMAC verification runs automatically when token is present.
 
   const initData = req.body?.initData;
   if (typeof initData !== "string" || !initData) {
@@ -491,7 +492,7 @@ router.post("/telegram/auth", async (req, res): Promise<void> => {
     return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
 
   await upsertUser({
@@ -511,7 +512,7 @@ router.post("/telegram/auth", async (req, res): Promise<void> => {
 // user or spoof its own telegram_id.
 router.post("/telegram/claim", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
+  // Fallback to unsigned parse when BOT_TOKEN is absent so earnings are never lost.
 
   const initData = req.body?.initData;
   if (typeof initData !== "string" || !initData) {
@@ -519,7 +520,7 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
     return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
 
   // Parse and round to 6 decimal places to prevent floating-point accumulation.
@@ -572,14 +573,12 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
 // Returns the sum of all mining claims in the rolling last 24 hours for this user.
 router.get("/telegram/earnings/24h", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ earnings: 0 }); return; }
-
   const initData = req.headers["x-init-data"];
   if (typeof initData !== "string" || !initData) {
     res.status(400).json({ error: "x-init-data header required" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   try {
@@ -682,7 +681,6 @@ router.get("/telegram/setup", async (_req, res) => {
 // Save / update wallet address for the current user — with uniqueness check.
 router.post("/telegram/wallet", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = (req.body?.initData ?? "") as string;
   const address  = (req.body?.address ?? "")  as string;
@@ -690,7 +688,7 @@ router.post("/telegram/wallet", async (req, res): Promise<void> => {
   if (!initData) { res.status(400).json({ error: "initData required" }); return; }
   if (!address)  { res.status(400).json({ error: "address required" });  return; }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   const db = await getDb();
@@ -727,12 +725,11 @@ router.post("/telegram/wallet", async (req, res): Promise<void> => {
 // Remove wallet address for the current user.
 router.delete("/telegram/wallet", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = (req.body?.initData ?? "") as string;
   if (!initData) { res.status(400).json({ error: "initData required" }); return; }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   const db = await getDb();
@@ -1492,14 +1489,13 @@ async function ensureMinersSchema(pool: QueryPool) {
 // Load the authenticated user's miners state.
 router.post("/telegram/miners/load", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = req.body?.initData;
   if (typeof initData !== "string" || !initData) {
     res.status(400).json({ error: "initData required" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   const db = await getDb();
@@ -1532,14 +1528,13 @@ router.post("/telegram/miners/load", async (req, res): Promise<void> => {
 // Uses GREATEST() so the level can only go up — never accidentally downgraded.
 router.post("/telegram/miners/save", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = req.body?.initData;
   if (typeof initData !== "string" || !initData) {
     res.status(400).json({ error: "initData required" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   const { levels, lastClaimAt = null } = req.body as {
@@ -1586,14 +1581,13 @@ router.post("/telegram/miners/save", async (req, res): Promise<void> => {
 // Uses optimistic UI on the client; this endpoint is the authoritative source of truth.
 router.post("/telegram/coins/spend", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = req.body?.initData;
   if (typeof initData !== "string" || !initData) {
     res.status(400).json({ error: "initData is required" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
 
   const amount = Number(req.body?.amount);

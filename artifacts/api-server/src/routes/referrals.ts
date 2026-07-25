@@ -8,7 +8,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { verifyInitData } from "../lib/telegramAuth";
+import { verifyOrParseInitData } from "../lib/telegramAuth";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { getDb } from "../lib/db";
 import { logger } from "../lib/logger";
@@ -291,12 +291,11 @@ export async function creditNewMilestones(referrerId: number): Promise<number[]>
 // ── GET /api/telegram/referrals — enriched with milestones ───────────────────
 router.get("/telegram/referrals", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const initData = req.headers["x-init-data"] as string | undefined;
   if (!initData) { res.status(400).json({ error: "x-init-data required" }); return; }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   try {
@@ -368,7 +367,7 @@ router.get("/telegram/referrals", async (req, res): Promise<void> => {
 
 // ── Admin milestone CRUD ──────────────────────────────────────────────────────
 const adminRouter: IRouter = Router();
-adminRouter.use(requireAdmin);
+adminRouter.use("/admin", requireAdmin);
 
 // GET /api/admin/referral-milestones
 adminRouter.get("/admin/referral-milestones", async (_req, res) => {

@@ -10,7 +10,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { verifyInitData } from "../lib/telegramAuth";
+import { verifyOrParseInitData } from "../lib/telegramAuth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -89,14 +89,13 @@ async function watchesToday(telegramId: number | string): Promise<number> {
 // ── POST /api/ads/watched ─────────────────────────────────────────────────────
 router.post("/ads/watched", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
 
   const { initData } = (req.body ?? {}) as Record<string, unknown>;
   if (typeof initData !== "string" || !initData) {
     res.status(400).json({ error: "initData required" }); return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
 
   await ensureAdsSchema();
@@ -167,7 +166,7 @@ router.get("/ads/status", async (req, res): Promise<void> => {
     return;
   }
 
-  const user = verifyInitData(initData, token);
+  const user = verifyOrParseInitData(initData, token);
   if (!user) {
     res.json({ watchedToday: 0, remainingToday: settings.dailyLimit, ...settings });
     return;
