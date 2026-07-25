@@ -20,12 +20,12 @@ import mineBgImg from '@assets/photo_2026-07-14_21-54-22_1784066077961.jpg';
 
 const queryClient = new QueryClient();
 
-// The TON Connect manifest is served dynamically from the API so the iconUrl
-// is always built from the real origin without relying on a hosted redirect.
-// API_BASE is '' in dev (Vite proxy forwards /api → port 8080).
-const manifestUrl = typeof window !== 'undefined'
-  ? `/api/tonconnect-manifest?origin=${encodeURIComponent(window.location.origin)}`
-  : '/api/tonconnect-manifest';
+// Static manifest served directly from the frontend's public/ directory.
+// This avoids the API proxy — external TON wallet apps fetch it straight
+// from the same HTTPS origin as the Mini App, with no proxy needed.
+// ⚠️  After deploying to a new domain, update public/tonconnect-manifest.json
+//    to reflect the new "url" and "iconUrl" values.
+const manifestUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/tonconnect-manifest.json`;
 
 // Keeps a CSS var in sync with the *real* visible height inside Telegram's
 // in-app browser — plain 100dvh is unreliable inside Telegram's WebView.

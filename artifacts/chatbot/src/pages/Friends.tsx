@@ -33,7 +33,7 @@ interface LeaderUser {
   balance: number;
 }
 
-interface TournamentPrize { rank: number; gram: number }
+interface TournamentPrize { rank: number; coins?: number; gram: number }
 interface ActiveTournament {
   id: number;
   title: string;
@@ -42,6 +42,7 @@ interface ActiveTournament {
   startsAt: string;
   endsAt: string;
   status: string;
+  tournamentType?: string;
 }
 
 /** Countdown hook — returns formatted string, updates every second */
@@ -89,11 +90,15 @@ function LeaderboardModal({
   onClose,
   leaderboard,
   loading,
+  tournament,
 }: {
   onClose: () => void;
   leaderboard: LeaderUser[];
   loading: boolean;
+  tournament: ActiveTournament | null;
 }) {
+  const countdown = useCountdown(tournament?.endsAt);
+
   const rankIcon = (r: number) => {
     if (r === 1) return '🥇';
     if (r === 2) return '🥈';
@@ -101,22 +106,21 @@ function LeaderboardModal({
     return r;
   };
 
+  const prizeForRank = (rank: number): number | null => {
+    if (!tournament) return null;
+    const p = tournament.prizes.find(px => px.rank === rank);
+    return p ? (p.coins ?? p.gram ?? 0) : null;
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
       {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
       {/* Sheet */}
       <div
         className="relative z-10 rounded-t-3xl flex flex-col"
-        style={{
-          backgroundColor: '#0a0b14',
-          maxHeight: '88vh',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-        }}
+        style={{ backgroundColor: '#0a0b14', maxHeight: '92vh', borderTop: '1px solid rgba(255,255,255,0.08)' }}
       >
         {/* Handle bar */}
         <div className="flex justify-center pt-3 pb-1">
@@ -127,18 +131,51 @@ function LeaderboardModal({
         <div className="flex items-center justify-between px-5 py-3">
           <div className="flex items-center gap-2">
             <img src={LEADERBOARD_ICON} alt="" className="w-7 h-7 object-contain" />
-            <h2 className="text-xl font-black text-white">المتصدرون</h2>
+            <div>
+              <h2 className="text-xl font-black text-white leading-tight">
+                {tournament ? tournament.title : 'المتصدرون'}
+              </h2>
+              {tournament && (
+                <p className="text-[10px] text-white/40 font-medium">مسابقة كوينات • ينتهي بعد {countdown}</p>
+              )}
+            </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"
-          >
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
             <X className="w-4 h-4 text-white/70" />
           </button>
         </div>
 
-        {/* Subtitle */}
-        <p className="text-xs text-white/40 px-5 pb-3 font-medium">أفضل 20 مستخدم بعدد الـ coin الأعلى</p>
+        {/* Tournament prize banner */}
+        {tournament && (
+          <div className="mx-5 mb-3 rounded-xl border border-primary/25 p-3" style={{ backgroundColor: 'rgba(245,166,35,0.06)' }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Trophy className="w-4 h-4 text-primary flex-shrink-0" />
+              <span className="text-xs font-black text-primary">جوائز المسابقة</span>
+              <div className="ml-auto flex items-center gap-1 text-[10px] text-white/50">
+                <Clock className="w-3 h-3" />
+                {countdown}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {tournament.prizes.filter(p => (p.coins ?? p.gram) > 0).slice(0, 8).map(p => {
+                const val = (p.coins ?? p.gram).toLocaleString();
+                const emoji = p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : `#${p.rank}`;
+                return (
+                  <span key={p.rank} className="text-[10px] bg-primary/10 border border-primary/20 rounded-lg px-2 py-0.5 text-primary font-bold">
+                    {emoji} {val}
+                  </span>
+                );
+              })}
+              {tournament.prizes.filter(p => (p.coins ?? p.gram) > 0).length > 8 && (
+                <span className="text-[10px] text-white/40">+{tournament.prizes.filter(p => (p.coins ?? p.gram) > 0).length - 8} مراكز أخرى</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!tournament && (
+          <p className="text-xs text-white/40 px-5 pb-3 font-medium">أفضل 20 مستخدم بعدد الـ coin الأعلى</p>
+        )}
 
         {/* List */}
         <div className="overflow-y-auto flex-1 px-4 pb-8 space-y-2">
@@ -154,27 +191,22 @@ function LeaderboardModal({
           ) : (
             leaderboard.map((u) => {
               const displayName = [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Miner';
+              const prize = prizeForRank(u.rank);
               return (
                 <div
                   key={u.telegramId}
-                  className="flex items-center gap-3 rounded-2xl px-3 py-2.5 border border-white/8"
+                  className="flex items-center gap-3 rounded-2xl px-3 py-2.5 border"
                   style={{
                     backgroundColor:
-                      u.rank === 1
-                        ? 'rgba(255,215,0,0.06)'
-                        : u.rank === 2
-                        ? 'rgba(192,192,192,0.06)'
-                        : u.rank === 3
-                        ? 'rgba(205,127,50,0.06)'
-                        : 'rgba(0,0,0,0.45)',
+                      u.rank === 1 ? 'rgba(255,215,0,0.06)'
+                      : u.rank === 2 ? 'rgba(192,192,192,0.06)'
+                      : u.rank === 3 ? 'rgba(205,127,50,0.06)'
+                      : 'rgba(0,0,0,0.45)',
                     borderColor:
-                      u.rank === 1
-                        ? 'rgba(255,215,0,0.25)'
-                        : u.rank === 2
-                        ? 'rgba(192,192,192,0.18)'
-                        : u.rank === 3
-                        ? 'rgba(205,127,50,0.22)'
-                        : 'rgba(255,255,255,0.07)',
+                      u.rank === 1 ? 'rgba(255,215,0,0.25)'
+                      : u.rank === 2 ? 'rgba(192,192,192,0.18)'
+                      : u.rank === 3 ? 'rgba(205,127,50,0.22)'
+                      : 'rgba(255,255,255,0.07)',
                   }}
                 >
                   {/* Rank */}
@@ -197,9 +229,14 @@ function LeaderboardModal({
                     ) : (
                       <div className="text-[11px] text-white/25 truncate">#{u.telegramId}</div>
                     )}
+                    {prize !== null && prize > 0 && (
+                      <div className="text-[10px] text-primary font-bold mt-0.5">
+                        🎁 +{prize.toLocaleString()} coin
+                      </div>
+                    )}
                   </div>
 
-                  {/* Balance */}
+                  {/* Balance (coins) */}
                   <div className="text-right flex-shrink-0">
                     <div className="text-sm font-black text-primary">
                       {Math.floor(u.balance).toLocaleString()}
@@ -228,6 +265,7 @@ export default function Friends() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderUser[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [coinTournament, setCoinTournament] = useState<ActiveTournament | null>(null);
 
   const referralLink = `https://t.me/${BOT_USERNAME}?start=${tgUser?.id ?? ''}`;
 
@@ -250,8 +288,15 @@ export default function Friends() {
   const loadLeaderboard = useCallback(async () => {
     setLoadingLeaderboard(true);
     try {
-      const res = await fetch(`${API_BASE}/api/leaderboard`);
-      if (res.ok) setLeaderboard(await res.json() as LeaderUser[]);
+      const [lbRes, tRes] = await Promise.all([
+        fetch(`${API_BASE}/api/leaderboard`),
+        fetch(`${API_BASE}/api/tournament/active?type=coin`),
+      ]);
+      if (lbRes.ok) setLeaderboard(await lbRes.json() as LeaderUser[]);
+      if (tRes.ok) {
+        const d = await tRes.json() as { tournament: ActiveTournament | null };
+        setCoinTournament(d.tournament ?? null);
+      }
     } catch { /* best-effort */ }
     finally { setLoadingLeaderboard(false); }
   }, []);
@@ -306,6 +351,7 @@ export default function Friends() {
           onClose={() => setShowLeaderboard(false)}
           leaderboard={leaderboard}
           loading={loadingLeaderboard}
+          tournament={coinTournament}
         />
       )}
 

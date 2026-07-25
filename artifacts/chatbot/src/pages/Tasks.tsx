@@ -67,7 +67,7 @@ export default function Tasks() {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/tasks?action=completed`, {
+      const res = await fetch(`${API_BASE}/api/tasks/completed`, {
         headers: { 'x-init-data': initData },
       });
       if (res.ok) {
@@ -148,7 +148,7 @@ export default function Tasks() {
       const data = await telegramApiPost<{
         ok: boolean; reward: number; coins: number;
         completedAt?: string; isDaily?: boolean;
-      }>('/tasks?action=complete', { taskId: task.id });
+      }>('/tasks/complete', { taskId: task.id });
 
       if (data.ok) {
         markCompleted(task.id, data.completedAt ?? null, data.isDaily ?? task.isDaily);
@@ -183,7 +183,7 @@ export default function Tasks() {
       const data = await telegramApiPost<{
         ok: boolean; reward: number; coins: number;
         completedAt?: string; isDaily?: boolean;
-      }>('/tasks?action=complete', { taskId: task.id });
+      }>('/tasks/complete', { taskId: task.id });
 
       if (data.ok) {
         markCompleted(task.id, data.completedAt ?? null, data.isDaily ?? task.isDaily);

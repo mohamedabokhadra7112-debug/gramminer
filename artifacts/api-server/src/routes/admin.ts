@@ -20,7 +20,9 @@ import { getDb } from "../lib/db";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
-router.use(requireAdmin);
+// requireAdmin scoped to /admin/* only — prevents it from intercepting
+// unrelated routes when this router is mounted without a path prefix.
+router.use("/admin", requireAdmin);
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -328,34 +330,45 @@ router.all("/admin/general", async (req, res) => {
       // Ensure table exists (lazy migration)
       await pool.query(`
         CREATE TABLE IF NOT EXISTS gm_tournaments (
-          id          SERIAL PRIMARY KEY,
-          title       TEXT    NOT NULL,
-          top_n       INTEGER NOT NULL DEFAULT 10,
-          prizes      TEXT    NOT NULL DEFAULT '[]',
-          starts_at   TIMESTAMPTZ NOT NULL,
-          ends_at     TIMESTAMPTZ NOT NULL,
-          status      TEXT    NOT NULL DEFAULT 'active',
-          snapshot    TEXT,
-          settled_at  TIMESTAMPTZ,
-          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          id               SERIAL PRIMARY KEY,
+          title            TEXT    NOT NULL,
+          top_n            INTEGER NOT NULL DEFAULT 10,
+          prizes           TEXT    NOT NULL DEFAULT '[]',
+          starts_at        TIMESTAMPTZ NOT NULL,
+          ends_at          TIMESTAMPTZ NOT NULL,
+          status           TEXT    NOT NULL DEFAULT 'active',
+          snapshot         TEXT,
+          settled_at       TIMESTAMPTZ,
+          tournament_type  TEXT    NOT NULL DEFAULT 'gram',
+          created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `);
+      await pool.query(
+        `ALTER TABLE gm_tournaments ADD COLUMN IF NOT EXISTS tournament_type TEXT NOT NULL DEFAULT 'gram'`,
+      ).catch(() => {});
 
       if (method === "GET") {
-        // List all tournaments (latest first)
+        // List all tournaments (latest first), optionally filter by tournamentType
+        const filterType = typeof req.query["tournamentType"] === "string"
+          ? req.query["tournamentType"] : null;
         const result = await pool.query(
-          `SELECT id, title, top_n, prizes, starts_at, ends_at, status, settled_at, created_at
-           FROM gm_tournaments ORDER BY created_at DESC LIMIT 50`
+          filterType
+            ? `SELECT id, title, top_n, prizes, starts_at, ends_at, status, settled_at, tournament_type, created_at
+               FROM gm_tournaments WHERE tournament_type=$1 ORDER BY created_at DESC LIMIT 50`
+            : `SELECT id, title, top_n, prizes, starts_at, ends_at, status, settled_at, tournament_type, created_at
+               FROM gm_tournaments ORDER BY created_at DESC LIMIT 50`,
+          filterType ? [filterType] : [],
         );
         res.json(result.rows.map(r => ({
-          id:        r.id,
-          title:     r.title,
-          topN:      r.top_n,
-          prizes:    JSON.parse(r.prizes),
-          startsAt:  r.starts_at,
-          endsAt:    r.ends_at,
-          status:    r.status,
-          settledAt: r.settled_at,
+          id:             r.id,
+          title:          r.title,
+          topN:           r.top_n,
+          prizes:         JSON.parse(r.prizes),
+          startsAt:       r.starts_at,
+          endsAt:         r.ends_at,
+          status:         r.status,
+          settledAt:      r.settled_at,
+          tournamentType: r.tournament_type ?? "gram",
         })));
 
       } else if (method === "POST" && !action) {
@@ -363,23 +376,25 @@ router.all("/admin/general", async (req, res) => {
         const body = req.body as {
           title?: string;
           topN?: number;
-          prizes?: { rank: number; gram: number }[];
+          prizes?: { rank: number; gram?: number; coins?: number }[];
           durationHours?: number;
+          tournamentType?: string;
         };
         if (!body.title?.trim()) { res.status(400).json({ error: "title required" }); return; }
         if (!body.durationHours || body.durationHours <= 0) { res.status(400).json({ error: "durationHours must be > 0" }); return; }
-        const topN   = Math.min(50, Math.max(1, body.topN ?? 10));
-        const prizes = Array.isArray(body.prizes) ? body.prizes : [];
-        const now    = new Date();
-        const endsAt = new Date(now.getTime() + body.durationHours * 3600 * 1000);
+        const topN           = Math.min(50, Math.max(1, body.topN ?? 10));
+        const prizes         = Array.isArray(body.prizes) ? body.prizes : [];
+        const tournamentType = body.tournamentType === "coin" ? "coin" : "gram";
+        const now            = new Date();
+        const endsAt         = new Date(now.getTime() + body.durationHours * 3600 * 1000);
 
         const r = await pool.query(
-          `INSERT INTO gm_tournaments (title, top_n, prizes, starts_at, ends_at, status)
-           VALUES ($1, $2, $3, $4, $5, 'active')
+          `INSERT INTO gm_tournaments (title, top_n, prizes, starts_at, ends_at, status, tournament_type)
+           VALUES ($1, $2, $3, $4, $5, 'active', $6)
            RETURNING id`,
-          [body.title.trim(), topN, JSON.stringify(prizes), now, endsAt]
+          [body.title.trim(), topN, JSON.stringify(prizes), now, endsAt, tournamentType]
         );
-        logger.info({ id: r.rows[0].id, title: body.title, topN, durationHours: body.durationHours }, "Tournament created");
+        logger.info({ id: r.rows[0].id, title: body.title, topN, durationHours: body.durationHours, tournamentType }, "Tournament created");
         res.json({ ok: true, id: r.rows[0].id });
 
       } else if (method === "POST" && action === "settle" && id) {

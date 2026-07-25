@@ -364,6 +364,221 @@ function ReferralSection() {
   );
 }
 
+// ─── 6b. Referral Milestones ───────────────────────────────────────────────
+interface Milestone {
+  id: number;
+  inviteCount: number;
+  rewardCoins: number;
+  isEnabled: boolean;
+}
+
+function MilestonesSection() {
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [status, setStatus]         = useState('');
+
+  // Add form
+  const [newCount,  setNewCount]  = useState('');
+  const [newReward, setNewReward] = useState('');
+
+  // Inline-edit state: id → draft values
+  const [editing, setEditing] = useState<Record<number, { inviteCount: string; rewardCoins: string }>>({});
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api<Milestone[]>('GET', '/admin/referral-milestones');
+      setMilestones(data);
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const flash = (msg: string) => { setStatus(msg); setTimeout(() => setStatus(''), 2500); };
+
+  // ── Add ──────────────────────────────────────────────────────────────────
+  const add = async () => {
+    const ic = parseInt(newCount, 10);
+    const rc = parseInt(newReward, 10);
+    if (!ic || ic <= 0 || isNaN(rc) || rc < 0) {
+      flash('❌ أدخل عدد الإحالات والمكافأة بشكل صحيح'); return;
+    }
+    try {
+      await api('POST', '/admin/referral-milestones', { inviteCount: ic, rewardCoins: rc });
+      setNewCount(''); setNewReward('');
+      await load(); flash('✅ تمت الإضافة');
+    } catch (e: any) { flash(`❌ ${e.message}`); }
+  };
+
+  // ── Toggle enabled ────────────────────────────────────────────────────────
+  const toggleEnabled = async (m: Milestone) => {
+    try {
+      await api('PATCH', `/admin/referral-milestones/${m.id}`, { isEnabled: !m.isEnabled });
+      await load();
+    } catch (e: any) { flash(`❌ ${e.message}`); }
+  };
+
+  // ── Save inline edit ──────────────────────────────────────────────────────
+  const saveEdit = async (id: number) => {
+    const draft = editing[id];
+    if (!draft) return;
+    const ic = parseInt(draft.inviteCount, 10);
+    const rc = parseInt(draft.rewardCoins, 10);
+    if (!ic || ic <= 0 || isNaN(rc) || rc < 0) { flash('❌ قيم غير صالحة'); return; }
+    try {
+      await api('PATCH', `/admin/referral-milestones/${id}`, { inviteCount: ic, rewardCoins: rc });
+      setEditing(prev => { const n = { ...prev }; delete n[id]; return n; });
+      await load(); flash('✅ تم الحفظ');
+    } catch (e: any) { flash(`❌ ${e.message}`); }
+  };
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  const del = async (id: number) => {
+    if (!window.confirm('حذف هذه المرحلة نهائياً؟')) return;
+    try {
+      await api('DELETE', `/admin/referral-milestones/${id}`);
+      await load(); flash('✅ تم الحذف');
+    } catch (e: any) { flash(`❌ ${e.message}`); }
+  };
+
+  const startEdit = (m: Milestone) =>
+    setEditing(prev => ({ ...prev, [m.id]: { inviteCount: String(m.inviteCount), rewardCoins: String(m.rewardCoins) } }));
+
+  const cancelEdit = (id: number) =>
+    setEditing(prev => { const n = { ...prev }; delete n[id]; return n; });
+
+  if (loading) return <div className="text-muted-foreground text-sm">جار التحميل...</div>;
+
+  return (
+    <div className="space-y-3">
+
+      {/* ── Add form ── */}
+      <div className="bg-black/40 rounded-xl p-3 border border-primary/20 space-y-2">
+        <p className="text-xs text-primary font-black uppercase tracking-widest">➕ مرحلة جديدة</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] text-muted-foreground mb-1 block">عدد الإحالات</label>
+            <Input
+              value={newCount}
+              onChange={e => setNewCount(e.target.value)}
+              type="number" min="1" placeholder="مثال: 50"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground mb-1 block">المكافأة (coin)</label>
+            <Input
+              value={newReward}
+              onChange={e => setNewReward(e.target.value)}
+              type="number" min="0" placeholder="مثال: 250"
+            />
+          </div>
+        </div>
+        <Btn onClick={add} className="w-full" disabled={!newCount || !newReward}>
+          <Plus className="w-3.5 h-3.5" />إضافة مرحلة
+        </Btn>
+      </div>
+
+      <StatusMsg msg={status} isError={status.startsWith('❌')} />
+
+      {/* ── Milestone list ── */}
+      {milestones.length === 0 && (
+        <div className="text-center text-muted-foreground text-sm py-4">لا توجد مراحل بعد</div>
+      )}
+
+      {milestones.map(m => {
+        const isEdit = Boolean(editing[m.id]);
+        const draft  = editing[m.id];
+
+        return (
+          <div
+            key={m.id}
+            className={`bg-black/40 rounded-xl p-3 border transition-colors ${
+              m.isEnabled ? 'border-white/5' : 'border-white/5 opacity-50'
+            }`}
+          >
+            {isEdit ? (
+              /* ── Edit mode ── */
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">الإحالات</label>
+                    <Input
+                      value={draft.inviteCount}
+                      onChange={e => setEditing(p => ({ ...p, [m.id]: { ...p[m.id], inviteCount: e.target.value } }))}
+                      type="number" min="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground mb-1 block">المكافأة</label>
+                    <Input
+                      value={draft.rewardCoins}
+                      onChange={e => setEditing(p => ({ ...p, [m.id]: { ...p[m.id], rewardCoins: e.target.value } }))}
+                      type="number" min="0"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Btn size="sm" variant="success" className="flex-1" onClick={() => saveEdit(m.id)}>
+                    <Check className="w-3 h-3" />حفظ
+                  </Btn>
+                  <Btn size="sm" variant="ghost" className="flex-1" onClick={() => cancelEdit(m.id)}>
+                    <X className="w-3 h-3" />إلغاء
+                  </Btn>
+                </div>
+              </div>
+            ) : (
+              /* ── View mode ── */
+              <div className="flex items-center justify-between gap-3">
+                {/* Badge */}
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                    <Users className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <div className="text-white font-black text-sm">{m.inviteCount.toLocaleString()} إحالة</div>
+                    <div className="text-primary text-xs font-bold">+{m.rewardCoins.toLocaleString()} coin</div>
+                  </div>
+                  {!m.isEnabled && (
+                    <span className="text-[10px] bg-white/10 text-white/40 px-2 py-0.5 rounded-full font-bold">مخفية</span>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {/* Toggle visibility */}
+                  <button
+                    onClick={() => toggleEnabled(m)}
+                    title={m.isEnabled ? 'إخفاء' : 'تفعيل'}
+                    className="p-1.5 rounded-lg text-muted-foreground bg-white/5 hover:text-white transition-colors"
+                  >
+                    {m.isEnabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {/* Edit */}
+                  <button
+                    onClick={() => startEdit(m)}
+                    className="p-1.5 rounded-lg text-muted-foreground bg-white/5 hover:text-primary transition-colors"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    onClick={() => del(m.id)}
+                    className="p-1.5 rounded-lg text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── 7. User Search & Management ──────────────────────────────────────────
 function UsersSection() {
   const [query, setQuery]   = useState('');
@@ -891,16 +1106,17 @@ function ComboDailySection() {
   );
 }
 
-// ─── Tournament Section ────────────────────────────────────────────────────
+// ─── Shared tournament helpers ─────────────────────────────────────────────
 interface Tournament {
   id: number;
   title: string;
   topN: number;
-  prizes: { rank: number; gram: number }[];
+  prizes: { rank: number; gram: number; coins?: number }[];
   startsAt: string;
   endsAt: string;
   status: string;
   settledAt?: string;
+  tournamentType?: string;
 }
 
 function TournamentSection() {
@@ -1131,6 +1347,232 @@ function TournamentSection() {
   );
 }
 
+// ─── Coin Tournament Section ───────────────────────────────────────────────
+// Default prize structure (editable in UI)
+const DEFAULT_COIN_PRIZES: Record<number, string> = {
+  1: '3500', 2: '2500', 3: '2000',
+  4: '1000', 5: '1000', 6: '1000',
+  7: '500', 8: '500', 9: '500', 10: '500',
+  11: '500', 12: '500', 13: '500', 14: '500', 15: '500',
+  16: '300', 17: '300', 18: '300', 19: '300', 20: '300',
+};
+
+function CoinTournamentSection() {
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [status, setStatus]           = useState('');
+  const [settling, setSettling]       = useState<number | null>(null);
+  const [title, setTitle]             = useState('مسابقة الـ Coin 🏆');
+  const [durationH, setDurationH]     = useState(15 * 24); // 15 days
+  const [prizeValues, setPrizeValues] = useState<Record<number, string>>({ ...DEFAULT_COIN_PRIZES });
+
+  const topN = 20; // fixed for coin tournament
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api<Tournament[]>('GET', '/admin/general?type=tournament&tournamentType=coin');
+      setTournaments(data.filter(t => t.tournamentType === 'coin'));
+    } catch (e: any) { setStatus(`❌ ${e.message}`); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rankLabel = (r: number) => r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `#${r}`;
+
+  const flash = (msg: string) => { setStatus(msg); setTimeout(() => setStatus(''), 3000); };
+
+  const create = async () => {
+    if (!title.trim()) { flash('❌ اكتب اسم المسابقة'); return; }
+    const prizes = Array.from({ length: topN }, (_, i) => ({
+      rank: i + 1,
+      gram: 0,
+      coins: Number(prizeValues[i + 1] ?? 0),
+    })).filter(p => p.coins > 0);
+    try {
+      setStatus('');
+      await api('POST', '/admin/general?type=tournament', {
+        title: title.trim(),
+        topN,
+        durationHours: durationH,
+        prizes,
+        tournamentType: 'coin',
+      });
+      flash('✅ تم إنشاء المسابقة');
+      await load();
+    } catch (e: any) { flash(`❌ ${e.message}`); }
+  };
+
+  const cancel = async (id: number) => {
+    if (!confirm('إلغاء المسابقة نهائياً؟')) return;
+    try {
+      await api('DELETE', `/admin/general?type=tournament&id=${id}`);
+      flash('✅ تم الإلغاء');
+      await load();
+    } catch (e: any) { flash(`❌ ${e.message}`); }
+  };
+
+  const settle = async (id: number) => {
+    if (!confirm('إنهاء المسابقة الآن وتوزيع الجوائز؟')) return;
+    setSettling(id);
+    try {
+      await api('POST', `/admin/general?type=tournament&action=settle&id=${id}`);
+      flash('✅ تم التوزيع');
+      await load();
+    } catch (e: any) { flash(`❌ ${e.message}`); }
+    finally { setSettling(null); }
+  };
+
+  const formatDate = (d: string) =>
+    new Date(d).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
+
+  const timeLeft = (endsAt: string) => {
+    const diff = new Date(endsAt).getTime() - Date.now();
+    if (diff <= 0) return 'انتهت';
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    return d > 0 ? `${d} يوم ${h}س` : `${h}س ${Math.floor((diff % 3600000) / 60000)}د`;
+  };
+
+  const DURATION_OPTIONS = [
+    { v: 24,      l: 'يوم واحد' },
+    { v: 3 * 24,  l: '3 أيام'  },
+    { v: 7 * 24,  l: 'أسبوع'   },
+    { v: 15 * 24, l: '15 يوم'  },
+    { v: 30 * 24, l: '30 يوم'  },
+  ];
+
+  const active = tournaments.filter(t => t.status === 'active');
+  const past   = tournaments.filter(t => t.status !== 'active');
+  const hasActive = active.length > 0;
+
+  return (
+    <div className="space-y-4">
+      {/* ── Active tournament card ── */}
+      {loading ? (
+        <div className="text-muted-foreground text-sm">جار التحميل...</div>
+      ) : hasActive ? (
+        <div className="space-y-2">
+          {active.map(t => (
+            <div key={t.id} className="bg-primary/10 border border-primary/30 rounded-xl p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-white font-black text-sm">{t.title}</p>
+                  <p className="text-[11px] text-white/50 flex items-center gap-1 mt-0.5">
+                    <Clock className="w-3 h-3" /> ينتهي: {formatDate(t.endsAt)} · متبقي: {timeLeft(t.endsAt)}
+                  </p>
+                </div>
+                <div className="flex gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => settle(t.id)}
+                    disabled={settling === t.id}
+                    className="bg-primary/20 text-primary text-[10px] font-bold rounded-lg px-2 py-1 border border-primary/30"
+                  >
+                    {settling === t.id ? '...' : 'توزيع الآن'}
+                  </button>
+                  <button
+                    onClick={() => cancel(t.id)}
+                    className="bg-destructive/20 text-destructive text-[10px] font-bold rounded-lg px-2 py-1 border border-destructive/30"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+              {/* Prize preview */}
+              <div className="flex flex-wrap gap-1">
+                {t.prizes.filter(p => (p.coins ?? p.gram) > 0).slice(0, 6).map(p => (
+                  <span key={p.rank} className="text-[10px] bg-black/30 rounded-lg px-2 py-0.5 text-primary font-bold">
+                    {rankLabel(p.rank)} {(p.coins ?? p.gram).toLocaleString()} coin
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* ── Create / Restart form ── */}
+      <div className="bg-black/30 rounded-xl p-3 space-y-3 border border-white/10">
+        <p className="text-xs font-black text-white/70 flex items-center gap-1.5">
+          <Plus className="w-3.5 h-3.5 text-primary" />
+          {hasActive ? 'إنشاء دورة جديدة (بعد إنهاء الحالية)' : 'إنشاء مسابقة كوينات جديدة'}
+        </p>
+
+        <Input
+          placeholder="اسم المسابقة"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+        />
+
+        <div>
+          <p className="text-[10px] text-white/50 mb-1">مدة المسابقة</p>
+          <select
+            value={durationH}
+            onChange={e => setDurationH(Number(e.target.value))}
+            className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none"
+          >
+            {DURATION_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+        </div>
+
+        {/* Prize editor */}
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-white/50">الجوائز (coin لكل مركز)</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {Array.from({ length: topN }, (_, i) => (
+              <div key={i + 1} className="flex items-center gap-2 bg-black/20 rounded-xl px-2 py-1.5">
+                <span className="text-xs font-bold text-white/70 w-7 flex-shrink-0">{rankLabel(i + 1)}</span>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={prizeValues[i + 1] ?? ''}
+                  onChange={e => setPrizeValues(p => ({ ...p, [i + 1]: e.target.value }))}
+                  className="w-full bg-transparent text-white text-sm focus:outline-none"
+                />
+                <span className="text-[10px] text-primary/60 flex-shrink-0">coin</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button
+          className="text-[10px] text-primary underline"
+          onClick={() => setPrizeValues({ ...DEFAULT_COIN_PRIZES })}
+        >
+          ↺ إعادة القيم الافتراضية
+        </button>
+
+        <StatusMsg msg={status} isError={status.startsWith('❌')} />
+        <Btn onClick={create} disabled={!title.trim()} className="w-full">
+          <Trophy className="w-3.5 h-3.5" />
+          {hasActive ? 'إنشاء دورة جديدة' : 'إطلاق المسابقة'}
+        </Btn>
+      </div>
+
+      {/* ── Past coin tournaments ── */}
+      {past.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-black text-white/50">السابقة ({past.length})</p>
+          {past.slice(0, 5).map(t => (
+            <div key={t.id} className="bg-white/5 border border-white/10 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-white/80 font-bold text-sm">{t.title}</p>
+                <span className={`text-[10px] rounded-full px-2 py-0.5 font-bold ${
+                  t.status === 'settled' ? 'bg-success/20 text-success' : 'bg-white/10 text-white/40'
+                }`}>
+                  {t.status === 'settled' ? '✅ منتهية' : '🚫 ملغاة'}
+                </span>
+              </div>
+              <p className="text-[10px] text-white/40 mt-0.5">{formatDate(t.endsAt)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Admin Page ───────────────────────────────────────────────────────
 export default function Admin() {
   return (
@@ -1165,8 +1607,11 @@ export default function Admin() {
         <Section title="المهام" icon={ClipboardList}>
           <TasksSection />
         </Section>
-        <Section title="الإحالات" icon={DollarSign}>
+        <Section title="إعدادات الإحالات" icon={DollarSign}>
           <ReferralSection />
+        </Section>
+        <Section title="مراحل الإحالات" icon={UserPlus}>
+          <MilestonesSection />
         </Section>
         <Section title="المستخدمون" icon={Users}>
           <UsersSection />
@@ -1189,7 +1634,10 @@ export default function Admin() {
         <Section title="الكومبو اليومي" icon={Sparkles}>
           <ComboDailySection />
         </Section>
-        <Section title="المسابقات" icon={Trophy}>
+        <Section title="مسابقة الـ Coin" icon={Coins}>
+          <CoinTournamentSection />
+        </Section>
+        <Section title="مسابقات الـ Gram" icon={Trophy}>
           <TournamentSection />
         </Section>
       </div>

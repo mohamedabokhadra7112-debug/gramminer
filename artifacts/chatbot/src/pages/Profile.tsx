@@ -7,63 +7,55 @@ import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
 import WalletModal from '@/components/WalletModal';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 
-// ─── Swap Panel ───────────────────────────────────────────────────────────────
+// ─── Swap Panel (Gram → Coin only) ────────────────────────────────────────────
 function SwapPanel({ onClose }: { onClose: () => void }) {
   const { holdingWallet, sessionEarnings } = useWallet();
   const totalGram = holdingWallet + sessionEarnings;
 
-  const [direction, setDirection] = useState<'gram_to_coins' | 'coins_to_gram'>('gram_to_coins');
   const [inputVal, setInputVal] = useState('');
-  const [rate, setRate] = useState<{ gramToCoins: number; coinsToGram: number } | null>(null);
+  const [rate, setRate] = useState<number | null>(null);
   const [status, setStatus] = useState<{ type: 'idle' | 'loading' | 'ok' | 'err'; msg: string }>({ type: 'idle', msg: '' });
-  const [history, setHistory] = useState<{ id: number; direction: string; fromAmount: number; toAmount: number; createdAt: string }[]>([]);
+  const [history, setHistory] = useState<{ id: number; direction: string; gram_amount: number; coins_amount: number; created_at: string }[]>([]);
 
   useEffect(() => {
-    // Load swap rate from admin settings
     const initData = getInitData();
-    if (!initData) { setRate({ gramToCoins: 700, coinsToGram: 700 }); return; }
+    if (!initData) { setRate(700); return; }
     fetch(`${API_BASE}/api/telegram/swap/rate`, { headers: { 'x-init-data': initData } })
       .then(r => r.ok ? r.json() : null)
-      .then((d: { gramToCoins?: number; coinsToGram?: number } | null) => {
-        if (d) setRate({ gramToCoins: d.gramToCoins ?? 700, coinsToGram: d.coinsToGram ?? 700 });
-        else setRate({ gramToCoins: 700, coinsToGram: 700 });
-      })
-      .catch(() => setRate({ gramToCoins: 700, coinsToGram: 700 }));
+      .then((d: { gramToCoins?: number } | null) => setRate(d?.gramToCoins ?? 700))
+      .catch(() => setRate(700));
 
-    // Load swap history
     fetch(`${API_BASE}/api/telegram/swap/history`, { headers: { 'x-init-data': initData } })
       .then(r => r.ok ? r.json() : [])
-      .then((d: { id: number; direction: string; fromAmount: number; toAmount: number; createdAt: string }[]) => {
-        if (Array.isArray(d)) setHistory(d);
+      .then((d: { id: number; direction: string; gram_amount: number; coins_amount: number; created_at: string }[]) => {
+        if (Array.isArray(d)) setHistory(d.filter(h => h.direction === 'gram_to_coins'));
       })
       .catch(() => {});
   }, []);
 
-  const gramToCoinsRate = rate?.gramToCoins ?? 700;
-  const coinsToGramRate = rate?.coinsToGram ?? 700;
-
-  const fromLabel = direction === 'gram_to_coins' ? 'gram' : 'coin';
-  const toLabel = direction === 'gram_to_coins' ? 'coin' : 'gram';
-
-  const inputNum = parseFloat(inputVal) || 0;
-  const outputNum = direction === 'gram_to_coins'
-    ? inputNum * gramToCoinsRate
-    : inputNum / coinsToGramRate;
-
-  const rateDisplay = direction === 'gram_to_coins'
-    ? `1 gram = ${gramToCoinsRate} coin`
-    : `${coinsToGramRate} coin = 1 gram`;
+  const gramToCoinsRate = rate ?? 700;
+  const inputNum  = parseFloat(inputVal) || 0;
+  const outputNum = Math.floor(inputNum * gramToCoinsRate);
 
   const handleSwap = async () => {
     if (!inputNum || inputNum <= 0) return;
     setStatus({ type: 'loading', msg: '' });
     try {
-      const data = await telegramApiPost<{ ok: boolean; message?: string }>('/telegram/swap', {
-        direction,
+      await telegramApiPost<{ ok: boolean }>('/telegram/swap', {
+        direction: 'gram_to_coins',
         amount: inputNum,
       });
-      setStatus({ type: 'ok', msg: data.message || '✅ تم التحويل بنجاح' });
+      setStatus({ type: 'ok', msg: '✅ تم التحويل بنجاح' });
       setInputVal('');
+      // Refresh history
+      const initData = getInitData();
+      if (initData) {
+        fetch(`${API_BASE}/api/telegram/swap/history`, { headers: { 'x-init-data': initData } })
+          .then(r => r.ok ? r.json() : [])
+          .then((d: { id: number; direction: string; gram_amount: number; coins_amount: number; created_at: string }[]) => {
+            if (Array.isArray(d)) setHistory(d.filter(h => h.direction === 'gram_to_coins'));
+          }).catch(() => {});
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setStatus({ type: 'err', msg: `❌ ${msg}` });
@@ -78,62 +70,53 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
           onClick={onClose}
           className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors text-lg font-bold"
         >‹</button>
-        <h2 className="text-lg font-black text-white">Swap gram ⇄ coin</h2>
+        <h2 className="text-lg font-black text-white">تحويل gram إلى coin</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pt-6 space-y-4">
         {/* Rate info */}
         <div className="bg-primary/10 border border-primary/30 rounded-2xl p-4 text-center">
-          <div className="text-primary font-black text-lg">{rateDisplay}</div>
+          <div className="text-primary font-black text-lg">1 gram = {gramToCoinsRate.toLocaleString()} coin</div>
           <div className="text-xs text-white/60 mt-1">سعر التحويل</div>
         </div>
 
-        {/* From */}
+        {/* From — Gram */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted-foreground font-bold uppercase">من</span>
-            {direction === 'gram_to_coins' && (
-              <span className="text-xs text-muted-foreground">الرصيد: {totalGram.toFixed(4)} gram</span>
-            )}
+            <span className="text-xs text-muted-foreground">الرصيد: {totalGram.toFixed(4)} gram</span>
           </div>
           <div className="flex items-center gap-3">
             <input
               type="number"
               value={inputVal}
-              onChange={e => setInputVal(e.target.value)}
+              onChange={e => { setInputVal(e.target.value); setStatus({ type: 'idle', msg: '' }); }}
               placeholder="0.00"
               className="flex-1 bg-transparent text-2xl font-black text-white outline-none"
               dir="ltr"
             />
             <div className="bg-primary/20 border border-primary/40 rounded-xl px-3 py-1.5">
-              <span className="text-primary font-black text-sm">{fromLabel}</span>
+              <span className="text-primary font-black text-sm">gram</span>
             </div>
           </div>
         </div>
 
-        {/* Swap direction button */}
+        {/* Arrow */}
         <div className="flex justify-center">
-          <button
-            onClick={() => {
-              setDirection(d => d === 'gram_to_coins' ? 'coins_to_gram' : 'gram_to_coins');
-              setInputVal('');
-              setStatus({ type: 'idle', msg: '' });
-            }}
-            className="w-11 h-11 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary hover:bg-primary/30 transition-colors"
-          >
-            <ArrowLeftRight className="w-5 h-5" />
-          </button>
+          <div className="w-11 h-11 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary">
+            <ArrowDown className="w-5 h-5" />
+          </div>
         </div>
 
-        {/* To */}
+        {/* To — Coin */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2">
           <div className="text-xs text-muted-foreground font-bold uppercase">إلى</div>
           <div className="flex items-center gap-3">
             <div className="flex-1 text-2xl font-black text-white/70">
-              {outputNum > 0 ? (direction === 'gram_to_coins' ? Math.floor(outputNum) : outputNum.toFixed(6)) : '0.00'}
+              {outputNum > 0 ? outputNum.toLocaleString() : '0'}
             </div>
             <div className="bg-white/10 border border-white/20 rounded-xl px-3 py-1.5">
-              <span className="text-white font-black text-sm">{toLabel}</span>
+              <span className="text-white font-black text-sm">coin</span>
             </div>
           </div>
         </div>
@@ -148,16 +131,16 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* Confirm button */}
+        {/* Confirm */}
         <button
           onClick={handleSwap}
           disabled={status.type === 'loading' || !inputNum || inputNum <= 0}
           className="w-full py-4 rounded-2xl bg-primary text-black font-black text-base disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all"
         >
-          {status.type === 'loading' ? '⏳ جار التحويل...' : `🔄 تحويل ${fromLabel} إلى ${toLabel}`}
+          {status.type === 'loading' ? '⏳ جار التحويل...' : '🔄 تحويل gram إلى coin'}
         </button>
 
-        {/* History */}
+        {/* History (gram→coin only) */}
         {history.length > 0 && (
           <div className="space-y-2 pb-4">
             <div className="text-xs text-muted-foreground font-bold uppercase tracking-widest">سجل التحويلات</div>
@@ -165,11 +148,11 @@ function SwapPanel({ onClose }: { onClose: () => void }) {
               <div key={h.id} className="bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between">
                 <div>
                   <div className="font-bold text-white text-sm">
-                    {h.direction === 'gram_to_coins' ? `${h.fromAmount} gram → ${Math.floor(h.toAmount)} coin` : `${h.fromAmount} coin → ${h.toAmount.toFixed(6)} gram`}
+                    {h.gram_amount} gram → {h.coins_amount.toLocaleString()} coin
                   </div>
-                  <div className="text-xs text-muted-foreground">{new Date(h.createdAt).toLocaleDateString('ar')}</div>
+                  <div className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleDateString('ar')}</div>
                 </div>
-                <ArrowLeftRight className="w-4 h-4 text-primary" />
+                <ArrowDown className="w-4 h-4 text-primary" />
               </div>
             ))}
           </div>

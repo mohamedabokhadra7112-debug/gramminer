@@ -78,15 +78,8 @@ async function ensureStoreSchema() {
 }
 
 // ── GET /api/store/products ───────────────────────────────────────────────────
+// Public endpoint — lists enabled products. No auth required (products are not user-specific).
 router.get("/store/products", async (req, res): Promise<void> => {
-  const token = getBotToken();
-  if (!token) { res.status(503).json({ error: "BOT_TOKEN not set" }); return; }
-
-  const initData = req.headers["x-init-data"] as string | undefined;
-  if (!initData) { res.status(400).json({ error: "x-init-data required" }); return; }
-  const user = verifyInitData(initData, token);
-  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
-
   await ensureStoreSchema();
   try {
     const { pool } = await import("@workspace/db");

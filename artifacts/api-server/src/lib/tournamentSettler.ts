@@ -26,7 +26,7 @@ function getAdminIds(): number[] {
   return env.split(",").map(Number).filter(Number.isFinite);
 }
 
-interface Prize { rank: number; gram: number }
+interface Prize { rank: number; gram: number; coins?: number }
 
 export async function settleTournamentNow(tournamentId: number) {
   return settleTournament(tournamentId);
@@ -36,62 +36,84 @@ async function settleTournament(tournamentId: number) {
   const { pool } = await import("@workspace/db");
 
   // Lock row — set status to 'settling' so concurrent runs skip it
-  const lockRes = await pool.query<{ id: number; title: string; top_n: number; prizes: string }>(
+  const lockRes = await pool.query<{
+    id: number; title: string; top_n: number; prizes: string; tournament_type: string | null;
+  }>(
     `UPDATE gm_tournaments
      SET status = 'settling'
      WHERE id = $1 AND status = 'active'
-     RETURNING id, title, top_n, prizes`,
+     RETURNING id, title, top_n, prizes, tournament_type`,
     [tournamentId],
   );
-  if (lockRes.rows.length === 0) return; // already being settled or settled
+  if (lockRes.rows.length === 0) return;
 
   const row = lockRes.rows[0]!;
-  const title  = row.title;
-  const topN   = row.top_n;
+  const title          = row.title;
+  const topN           = row.top_n;
   const prizes: Prize[] = JSON.parse(row.prizes);
+  const isCoin         = row.tournament_type === "coin";
 
-  logger.info({ tournamentId, title }, "Settling tournament");
+  logger.info({ tournamentId, title, isCoin }, "Settling tournament");
 
-  // Get top-N users
+  // Get top-N users — rank by coins for coin tournaments, gram balance otherwise
   const lbRes = await pool.query<{
     telegram_id: string; first_name: string | null;
-    last_name: string | null; username: string | null; balance: string;
+    last_name: string | null; username: string | null;
+    balance: string; coins: string;
   }>(
-    `SELECT telegram_id, first_name, last_name, username, balance
-     FROM gm_users WHERE is_banned = false
-     ORDER BY balance DESC LIMIT $1`,
+    isCoin
+      ? `SELECT telegram_id, first_name, last_name, username, balance, coins
+         FROM gm_users WHERE is_banned = false
+         ORDER BY coins DESC LIMIT $1`
+      : `SELECT telegram_id, first_name, last_name, username, balance, coins
+         FROM gm_users WHERE is_banned = false
+         ORDER BY balance DESC LIMIT $1`,
     [topN],
   );
 
-  const winners = lbRes.rows.map((r, i) => ({
-    rank:       i + 1,
-    telegramId: Number(r.telegram_id),
-    firstName:  r.first_name ?? null,
-    username:   r.username   ?? null,
-    balance:    Number(r.balance),
-    prize:      prizes.find(p => p.rank === i + 1)?.gram ?? 0,
-  }));
+  const winners = lbRes.rows.map((r, i) => {
+    const p = prizes.find(px => px.rank === i + 1);
+    return {
+      rank:       i + 1,
+      telegramId: Number(r.telegram_id),
+      firstName:  r.first_name ?? null,
+      username:   r.username   ?? null,
+      balance:    Number(r.balance),
+      coins:      Number(r.coins ?? 0),
+      prizeGram:  isCoin ? 0    : (p?.gram  ?? 0),
+      prizeCoins: isCoin ? (p?.coins ?? p?.gram ?? 0) : 0,
+    };
+  });
 
   // Award prizes and notify winners
   for (const w of winners) {
-    if (w.prize <= 0) continue;
+    const prize = isCoin ? w.prizeCoins : w.prizeGram;
+    if (prize <= 0) continue;
     try {
-      await pool.query(
-        `UPDATE gm_users
-         SET balance = ROUND(CAST(balance AS numeric) + CAST($1 AS numeric), 6)::double precision
-         WHERE telegram_id = $2`,
-        [w.prize, w.telegramId],
-      );
+      if (isCoin) {
+        await pool.query(
+          `UPDATE gm_users SET coins = coins + $1 WHERE telegram_id = $2`,
+          [w.prizeCoins, w.telegramId],
+        );
+      } else {
+        await pool.query(
+          `UPDATE gm_users
+           SET balance = ROUND(CAST(balance AS numeric) + CAST($1 AS numeric), 6)::double precision
+           WHERE telegram_id = $2`,
+          [w.prizeGram, w.telegramId],
+        );
+      }
 
       const rankEmoji = w.rank === 1 ? "🥇" : w.rank === 2 ? "🥈" : w.rank === 3 ? "🥉" : `#${w.rank}`;
       const name = w.firstName ?? `user${w.telegramId}`;
+      const prizeStr = isCoin ? `${w.prizeCoins} coin` : `${w.prizeGram} gram`;
       await sendMsg(
         w.telegramId,
         `🏆 <b>انتهت المسابقة!</b>\n\n` +
         `<b>${title}</b>\n\n` +
         `${rankEmoji} مبروك <b>${name}</b>!\n` +
         `لقد حصلت على المركز <b>${w.rank}</b>\n` +
-        `🎁 مكافأتك: <b>${w.prize} gram</b>\n\n` +
+        `🎁 مكافأتك: <b>${prizeStr}</b>\n\n` +
         `تم إضافة المكافأة لرصيدك فوراً ✅`,
       );
     } catch (err) {
@@ -103,8 +125,10 @@ async function settleTournament(tournamentId: number) {
   const lines = winners.map(w => {
     const rankEmoji = w.rank === 1 ? "🥇" : w.rank === 2 ? "🥈" : w.rank === 3 ? "🥉" : `${w.rank}.`;
     const name = w.firstName ?? `user${w.telegramId}`;
-    const prizeStr = w.prize > 0 ? ` ← +${w.prize} gram` : "";
-    return `${rankEmoji} ${name}: ${w.balance.toFixed(4)} gram${prizeStr}`;
+    const score = isCoin ? `${w.coins.toLocaleString()} coin` : `${w.balance.toFixed(4)} gram`;
+    const prize = isCoin ? w.prizeCoins : w.prizeGram;
+    const prizeStr = prize > 0 ? ` ← +${prize} ${isCoin ? "coin" : "gram"}` : "";
+    return `${rankEmoji} ${name}: ${score}${prizeStr}`;
   });
 
   const adminMsg =
@@ -126,7 +150,7 @@ async function settleTournament(tournamentId: number) {
     [snapshot, tournamentId],
   );
 
-  logger.info({ tournamentId, title, winners: winners.length }, "Tournament settled");
+  logger.info({ tournamentId, title, winners: winners.length, isCoin }, "Tournament settled");
 }
 
 export function startTournamentSettler() {

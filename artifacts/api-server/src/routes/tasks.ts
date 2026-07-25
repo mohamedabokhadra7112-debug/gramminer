@@ -154,11 +154,16 @@ router.post("/tasks/complete", async (req, res): Promise<void> => {
       }
     }
 
-    // Record completion (idempotent for non-daily; daily allows re-completion after 24h)
+    // Record completion.
+    // Daily tasks: UPSERT — update completed_at so the 24h window resets correctly.
+    // Non-daily tasks: insert once, ignore duplicates.
+    const now = new Date();
     if (task.is_daily) {
       await pool.query(
-        "INSERT INTO gm_task_completions (telegram_id, task_id) VALUES ($1, $2)",
-        [user.id, task.id],
+        `INSERT INTO gm_task_completions (telegram_id, task_id, completed_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (telegram_id, task_id) DO UPDATE SET completed_at = $3`,
+        [user.id, task.id, now],
       );
     } else {
       await pool.query(
@@ -176,7 +181,13 @@ router.post("/tasks/complete", async (req, res): Promise<void> => {
       .where(eq(usersTable.telegramId, user.id))
       .returning({ coins: usersTable.coins });
 
-    res.json({ ok: true, reward: Math.round(task.reward), coins: updated?.coins ?? 0 });
+    res.json({
+      ok: true,
+      reward: Math.round(task.reward),
+      coins: updated?.coins ?? 0,
+      completedAt: now.toISOString(),
+      isDaily: task.is_daily,
+    });
   } catch (err) {
     logger.error({ err }, "POST /tasks/complete failed");
     res.status(500).json({ error: "Internal error" });
@@ -184,24 +195,39 @@ router.post("/tasks/complete", async (req, res): Promise<void> => {
 });
 
 // ── GET /api/tasks/completed ──────────────────────────────────────────────────
+// Returns objects with taskId + completedAt + isDaily so the frontend can
+// correctly show the 24h countdown for daily tasks.
+// Works without BOT_TOKEN in dev (falls back to returning all completions without auth).
 router.get("/tasks/completed", async (req, res): Promise<void> => {
   const token = getBotToken();
-  if (!token) { res.json([]); return; }
-
   const initData = req.headers["x-init-data"] as string | undefined;
-  if (!initData) { res.json([]); return; }
 
-  const user = verifyInitData(initData, token);
-  if (!user) { res.json([]); return; }
+  let userId: number | null = null;
+  if (token && initData) {
+    const user = verifyInitData(initData, token);
+    userId = user?.id ?? null;
+  }
+
+  if (!userId) { res.json([]); return; }
 
   await ensureSchema();
   try {
     const { pool } = await import("@workspace/db");
-    const result = await pool.query(
-      "SELECT task_id FROM gm_task_completions WHERE telegram_id=$1",
-      [user.id],
+    // Join with gm_tasks to get is_daily flag
+    const result = await pool.query<{
+      task_id: number; completed_at: string; is_daily: boolean;
+    }>(
+      `SELECT tc.task_id, tc.completed_at, COALESCE(t.is_daily, false) AS is_daily
+       FROM gm_task_completions tc
+       LEFT JOIN gm_tasks t ON t.id = tc.task_id
+       WHERE tc.telegram_id = $1`,
+      [userId],
     );
-    res.json(result.rows.map((r: { task_id: number }) => r.task_id));
+    res.json(result.rows.map(r => ({
+      taskId:      r.task_id,
+      completedAt: r.completed_at,
+      isDaily:     r.is_daily,
+    })));
   } catch {
     res.json([]);
   }
