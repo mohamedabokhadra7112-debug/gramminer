@@ -167,7 +167,7 @@ async function runPollCycle(ownerWallet: string) {
 }
 
 export function startDepositPoller() {
-  const ownerWallet = process.env["OWNER_WALLET"] ?? process.env["NEXT_PUBLIC_OWNER_WALLET"] ?? "";
+  const ownerWallet = process.env["OWNER_WALLET"] ?? process.env["VITE_OWNER_WALLET"] ?? process.env["NEXT_PUBLIC_OWNER_WALLET"] ?? "";
   if (!ownerWallet) {
     logger.warn("depositPoller: OWNER_WALLET not set — auto-deposit disabled");
     return;

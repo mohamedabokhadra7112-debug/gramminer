@@ -137,7 +137,7 @@ router.post("/telegram/withdraw", async (req, res): Promise<void> => {
     if (!dbUser.walletAddress) { res.status(400).json({ error: "No wallet connected. Connect your TON wallet first." }); return; }
 
     // ── Block self-withdrawal (withdraw to bot's own wallet) ──────────────────
-    const ownerWallet = process.env["OWNER_WALLET"] ?? "";
+    const ownerWallet = process.env["OWNER_WALLET"] ?? process.env["VITE_OWNER_WALLET"] ?? "";
     if (ownerWallet) {
       const normalize = (a: string) => a.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
       if (normalize(dbUser.walletAddress) === normalize(ownerWallet)) {
