@@ -12,15 +12,14 @@ import swapRouter        from "./swap";
 import storeRouter       from "./store";
 import leaderboardRouter from "./leaderboard";
 import tournamentRouter  from "./tournament";
+import adsRouter         from "./ads";
 
 const router: IRouter = Router();
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Direct routes — registered BEFORE all sub-routers to bypass any
+// Direct routes registered BEFORE all sub-routers to bypass any
 // requireAdmin middleware that sub-routers mount without a path prefix.
-// ══════════════════════════════════════════════════════════════════════════════
 
-// ── Public task list ──────────────────────────────────────────────────────────
+// Public task list
 router.get("/tasks", async (_req, res): Promise<void> => {
   try {
     const { pool } = await import("@workspace/db");
@@ -38,7 +37,7 @@ router.get("/tasks", async (_req, res): Promise<void> => {
   }
 });
 
-// ── Completed tasks for a user (with timestamps for daily countdown) ──────────
+// Completed tasks for a user (with timestamps for daily countdown)
 router.get("/tasks/completed", async (req, res): Promise<void> => {
   const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
   const initData = req.headers["x-init-data"] as string | undefined;
@@ -67,8 +66,28 @@ router.get("/tasks/completed", async (req, res): Promise<void> => {
   }
 });
 
-// ── Public store products (no auth needed — product listing is public info) ───
-router.get("/store/products", async (req, res): Promise<void> => {
+// Public store settings (admin-configurable prices, no auth needed)
+router.get("/store/settings", async (_req, res): Promise<void> => {
+  try {
+    const { pool } = await import("@workspace/db");
+    const result = await pool.query<{ key: string; value: string }>(
+      `SELECT key, value FROM gm_settings
+       WHERE key IN ('store_coins_per_gram','store_daily_gram','store_monthly_gram')`,
+    );
+    const m: Record<string, string> = {};
+    for (const r of result.rows) m[r.key] = r.value;
+    res.json({
+      coinsPerGram: parseFloat(m["store_coins_per_gram"] ?? "700")  || 700,
+      dailyGram:    parseFloat(m["store_daily_gram"]     ?? "0.05") || 0.05,
+      monthlyGram:  parseFloat(m["store_monthly_gram"]   ?? "1.50") || 1.50,
+    });
+  } catch {
+    res.json({ coinsPerGram: 700, dailyGram: 0.05, monthlyGram: 1.50 });
+  }
+});
+
+// Public store products (no auth needed)
+router.get("/store/products", async (_req, res): Promise<void> => {
   try {
     const { pool } = await import("@workspace/db");
     const result = await pool.query(
@@ -76,16 +95,16 @@ router.get("/store/products", async (req, res): Promise<void> => {
        FROM gm_store_products WHERE is_enabled=true ORDER BY coin_price`,
     );
     res.json(result.rows.map((r: Record<string, unknown>) => ({
-      id: r["id"],
-      name: r["name"],
-      description: r["description"],
-      coinPrice: r["coin_price"],
-      gramValue: r["gram_value"],
+      id:            r["id"],
+      name:          r["name"],
+      description:   r["description"],
+      coinPrice:     r["coin_price"],
+      gramValue:     r["gram_value"],
       dailyMiningPct: r["daily_mining_pct"],
-      isEnabled: r["is_enabled"],
-      createdAt: r["created_at"],
+      isEnabled:     r["is_enabled"],
+      createdAt:     r["created_at"],
     })));
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "Internal error" });
   }
 });
@@ -94,13 +113,12 @@ router.use(healthRouter);
 router.use(manifestRouter);
 router.use(leaderboardRouter);
 router.use(tournamentRouter);
-// Feature routers registered before telegramRouter so their specific paths
-// take precedence over legacy catch-all handlers in telegram.ts
 router.use(referralsRouter);
 router.use(depositsRouter);
 router.use(swapRouter);
 router.use(storeRouter);
-router.use(tasksRouter);   // ← before adminRouter to prevent requireAdmin intercept
+router.use(adsRouter);
+router.use(tasksRouter);
 router.use(withdrawRouter);
 router.use(telegramRouter);
 router.use(adminRouter);

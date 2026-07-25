@@ -77,6 +77,28 @@ async function ensureStoreSchema() {
   }
 }
 
+// ── GET /api/store/settings (public) ─────────────────────────────────────────
+// Returns configurable store pricing from gm_settings.
+// Defaults apply when keys are absent (first run before admin sets them).
+router.get("/store/settings", async (_req, res): Promise<void> => {
+  try {
+    const { pool } = await import("@workspace/db");
+    const result = await pool.query<{ key: string; value: string }>(
+      `SELECT key, value FROM gm_settings
+       WHERE key IN ('store_coins_per_gram','store_daily_gram','store_monthly_gram')`,
+    );
+    const m: Record<string, string> = {};
+    for (const r of result.rows) m[r.key] = r.value;
+    res.json({
+      coinsPerGram: parseFloat(m["store_coins_per_gram"] ?? "700")  || 700,
+      dailyGram:    parseFloat(m["store_daily_gram"]     ?? "0.05") || 0.05,
+      monthlyGram:  parseFloat(m["store_monthly_gram"]   ?? "1.50") || 1.50,
+    });
+  } catch {
+    res.json({ coinsPerGram: 700, dailyGram: 0.05, monthlyGram: 1.50 });
+  }
+});
+
 // ── GET /api/store/products ───────────────────────────────────────────────────
 // Public endpoint — lists enabled products. No auth required (products are not user-specific).
 router.get("/store/products", async (req, res): Promise<void> => {

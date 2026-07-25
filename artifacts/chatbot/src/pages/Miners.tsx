@@ -1,42 +1,69 @@
 import { useState, useCallback, useEffect } from 'react';
-import { X, CheckCircle2, Loader2, Clock } from 'lucide-react';
+import { X, CheckCircle2, Loader2, Clock, TrendingUp } from 'lucide-react';
 import { useCoins } from '@/context/CoinsContext';
 import { useWallet } from '@/context/WalletContext';
 import { getInitData, API_BASE, telegramApiPost } from '@/lib/telegramApi';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const COINS_PER_GRAM = 700;
+// ─── Store settings (fetched from backend, overridable by admin) ───────────────
+interface StoreSettings {
+  coinsPerGram: number;
+  dailyGram:    number;
+  monthlyGram:  number;
+}
 
-// ─── Store packages (shown in grid) ──────────────────────────────────────────
+const DEFAULT_SETTINGS: StoreSettings = {
+  coinsPerGram: 700,
+  dailyGram:    0.05,
+  monthlyGram:  1.50,
+};
+
+async function fetchStoreSettings(): Promise<StoreSettings> {
+  try {
+    const res = await fetch(`${API_BASE}/api/store/settings`);
+    if (res.ok) return await res.json() as StoreSettings;
+  } catch { /* use defaults */ }
+  return DEFAULT_SETTINGS;
+}
+
+// ─── Package grid ─────────────────────────────────────────────────────────────
 interface Package {
   id: string;
-  coins: number; // base coins (= gram × 700)
-  gram: number;  // base gram price (1, 2, 3, ...)
+  gram: number;   // base gram price (also = multiplier since 1g = base)
 }
 
 const PACKAGES: Package[] = [
-  { id: 'p1',  coins: 700,   gram: 1  },
-  { id: 'p2',  coins: 1400,  gram: 2  },
-  { id: 'p3',  coins: 2100,  gram: 3  },
-  { id: 'p4',  coins: 3500,  gram: 5  },
-  { id: 'p5',  coins: 7000,  gram: 10 },
-  { id: 'p6',  coins: 14000, gram: 20 },
+  { id: 'p1',  gram: 1  },
+  { id: 'p2',  gram: 2  },
+  { id: 'p3',  gram: 3  },
+  { id: 'p4',  gram: 5  },
+  { id: 'p5',  gram: 10 },
+  { id: 'p6',  gram: 20 },
 ];
 
-// ─── Duration options (scale by package multiplier) ───────────────────────────
+// ─── Two durations only (DAILY + 1 MONTH) ─────────────────────────────────────
 interface Duration {
   id: string;
   label: string;
   dayIcon: string;
-  // These are the BASE values (for 1× / 700-coin package)
-  baseGram: number;
-  baseCoins: number;
+  getGram:  (s: StoreSettings, multiplier: number) => number;
+  getCoins: (s: StoreSettings, multiplier: number) => number;
 }
 
 const DURATIONS: Duration[] = [
-  { id: 'daily',   label: 'DAILY',    dayIcon: '',   baseGram: 0.05, baseCoins: 35   },
-  { id: 'month1',  label: '1 MONTH',  dayIcon: '30', baseGram: 1.50, baseCoins: 1050 },
-  { id: 'month3',  label: '3 MONTHS', dayIcon: '90', baseGram: 4.50, baseCoins: 3150 },
+  {
+    id: 'daily',
+    label: 'DAILY',
+    dayIcon: '',
+    getGram:  (s, m) => +(s.dailyGram   * m).toFixed(4),
+    getCoins: (s, m) => Math.round(s.dailyGram   * m * s.coinsPerGram),
+  },
+  {
+    id: 'month1',
+    label: '1 MONTH',
+    dayIcon: '30',
+    getGram:  (s, m) => +(s.monthlyGram * m).toFixed(4),
+    getCoins: (s, m) => Math.round(s.monthlyGram * m * s.coinsPerGram),
+  },
 ];
 
 // ─── Swap history ─────────────────────────────────────────────────────────────
@@ -47,8 +74,17 @@ interface SwapRecord {
   created_at: string;
 }
 
+// ─── Daily mining income from a coin balance ──────────────────────────────────
+// Formula: coins × 5% / coinsPerGram = gram/day
+function dailyIncomeGram(coins: number, coinsPerGram: number): number {
+  return Math.round((coins * 0.05 / coinsPerGram) * 100_000) / 100_000;
+}
+
 // ─── Package Card ─────────────────────────────────────────────────────────────
-function PackageCard({ pkg, onClick }: { pkg: Package; onClick: () => void }) {
+function PackageCard({
+  pkg, settings, onClick,
+}: { pkg: Package; settings: StoreSettings; onClick: () => void }) {
+  const coins = Math.round(pkg.gram * settings.coinsPerGram);
   return (
     <button
       onClick={onClick}
@@ -60,7 +96,6 @@ function PackageCard({ pkg, onClick }: { pkg: Package; onClick: () => void }) {
         minHeight: 100,
       }}
     >
-      {/* Coin icon */}
       <div
         className="w-10 h-10 rounded-full flex items-center justify-center mb-2"
         style={{
@@ -70,8 +105,6 @@ function PackageCard({ pkg, onClick }: { pkg: Package; onClick: () => void }) {
       >
         <span style={{ fontSize: 18, lineHeight: 1 }}>⛏️</span>
       </div>
-
-      {/* Coin amount */}
       <div
         className="font-black leading-none mb-0.5"
         style={{
@@ -81,11 +114,9 @@ function PackageCard({ pkg, onClick }: { pkg: Package; onClick: () => void }) {
           WebkitTextFillColor: 'transparent',
         }}
       >
-        {pkg.coins.toLocaleString()}
+        {coins.toLocaleString()}
       </div>
       <div className="text-[10px] font-black tracking-widest text-primary/60 mb-1.5">COIN</div>
-
-      {/* Gram price */}
       <div
         className="rounded-lg px-2.5 py-0.5 text-[11px] font-bold"
         style={{ background: 'rgba(245,166,35,0.12)', color: '#F5A623', border: '1px solid rgba(245,166,35,0.2)' }}
@@ -96,27 +127,30 @@ function PackageCard({ pkg, onClick }: { pkg: Package; onClick: () => void }) {
   );
 }
 
-// ─── Package Modal (bottom sheet) ─────────────────────────────────────────────
+// ─── Package Modal ─────────────────────────────────────────────────────────────
 function PackageModal({
-  pkg,
-  totalGram,
-  onClose,
-  onSuccess,
+  pkg, settings, totalGram, onClose, onSuccess,
 }: {
   pkg: Package;
+  settings: StoreSettings;
   totalGram: number;
   onClose: () => void;
   onSuccess: (coins: number) => void;
 }) {
-  const multiplier = pkg.gram; // 1, 2, 3, 5, 10, 20
+  const multiplier = pkg.gram;
+  const totalCoins = Math.round(multiplier * settings.coinsPerGram);
+
   const [selectedDur, setSelectedDur] = useState<string>('month1');
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle');
   const [errMsg, setErrMsg] = useState('');
 
-  const dur = DURATIONS.find(d => d.id === selectedDur)!;
-  const gram = +(dur.baseGram * multiplier).toFixed(2);
-  const coinsGet = dur.baseCoins * multiplier;
+  const dur    = DURATIONS.find(d => d.id === selectedDur)!;
+  const gram   = dur.getGram(settings, multiplier);
+  const coins  = dur.getCoins(settings, multiplier);
   const canAfford = totalGram >= gram;
+
+  // Daily mining income the user will earn after this purchase
+  const dailyIncome = dailyIncomeGram(coins, settings.coinsPerGram);
 
   const handlePay = async () => {
     if (!canAfford || status === 'loading') return;
@@ -133,10 +167,7 @@ function PackageModal({
         amount: gram,
       });
       setStatus('ok');
-      setTimeout(() => {
-        onSuccess(coinsGet);
-        onClose();
-      }, 1500);
+      setTimeout(() => { onSuccess(coins); onClose(); }, 1500);
     } catch (e: unknown) {
       setErrMsg(e instanceof Error ? e.message : String(e));
       setStatus('err');
@@ -145,13 +176,11 @@ function PackageModal({
   };
 
   return (
-    /* Backdrop */
     <div
       className="fixed inset-0 z-50 flex items-end justify-center"
-      style={{ background: 'rgba(0,0,0,0.75)' }}
+      style={{ background: 'rgba(0,0,0,0.78)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      {/* Sheet */}
       <div
         className="w-full max-w-sm rounded-t-3xl overflow-hidden"
         style={{
@@ -162,15 +191,15 @@ function PackageModal({
           paddingBottom: 'env(safe-area-inset-bottom, 16px)',
         }}
       >
-        {/* Close button */}
-        <div className="flex justify-end px-4 pt-3 pb-0">
+        {/* Close */}
+        <div className="flex justify-end px-4 pt-3">
           <button onClick={onClose} className="p-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.08)' }}>
             <X className="w-4 h-4 text-white/60" />
           </button>
         </div>
 
-        {/* Coin icon + amount */}
-        <div className="flex flex-col items-center pb-4 px-4">
+        {/* Coin icon + total coins */}
+        <div className="flex flex-col items-center pb-3 px-4">
           <div
             className="w-20 h-20 rounded-full flex items-center justify-center mb-3"
             style={{
@@ -180,7 +209,6 @@ function PackageModal({
           >
             <span style={{ fontSize: 38, lineHeight: 1 }}>⛏️</span>
           </div>
-
           <div
             className="font-black leading-none"
             style={{
@@ -191,7 +219,7 @@ function PackageModal({
               letterSpacing: '-1px',
             }}
           >
-            {pkg.coins.toLocaleString()}
+            {totalCoins.toLocaleString()}
           </div>
           <div className="flex items-center gap-3 mt-1">
             <div style={{ width: 32, height: 1, background: 'rgba(245,166,35,0.4)' }} />
@@ -203,8 +231,9 @@ function PackageModal({
         {/* Duration options */}
         <div className="mx-4 rounded-2xl overflow-hidden mb-3" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.06)' }}>
           {DURATIONS.map((d, i) => {
-            const dGram = +(d.baseGram * multiplier).toFixed(2);
-            const dCoins = d.baseCoins * multiplier;
+            const dGram  = d.getGram(settings, multiplier);
+            const dCoins = d.getCoins(settings, multiplier);
+            const dDaily = dailyIncomeGram(dCoins, settings.coinsPerGram);
             const isSelected = selectedDur === d.id;
             return (
               <button
@@ -218,7 +247,7 @@ function PackageModal({
                   outlineOffset: '-1.5px',
                 }}
               >
-                {/* Left: icon + label */}
+                {/* Left: icon + label + daily rate */}
                 <div className="flex items-center gap-3">
                   <div
                     className="flex-shrink-0 flex items-center justify-center rounded-lg"
@@ -228,17 +257,23 @@ function PackageModal({
                       border: `1px solid ${isSelected ? 'rgba(245,166,35,0.4)' : 'rgba(255,255,255,0.1)'}`,
                     }}
                   >
-                    {d.dayIcon ? (
-                      <span className="font-black" style={{ fontSize: 10, color: isSelected ? '#F5A623' : 'rgba(255,255,255,0.4)' }}>
-                        {d.dayIcon}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 15, lineHeight: 1 }}>📅</span>
-                    )}
+                    {d.dayIcon
+                      ? <span className="font-black" style={{ fontSize: 10, color: isSelected ? '#F5A623' : 'rgba(255,255,255,0.4)' }}>{d.dayIcon}</span>
+                      : <span style={{ fontSize: 15, lineHeight: 1 }}>📅</span>
+                    }
                   </div>
-                  <span className="font-black text-sm tracking-wide" style={{ color: isSelected ? '#FFFFFF' : 'rgba(255,255,255,0.5)' }}>
-                    {d.label}
-                  </span>
+                  <div className="text-left">
+                    <div className="font-black text-sm tracking-wide" style={{ color: isSelected ? '#FFFFFF' : 'rgba(255,255,255,0.5)' }}>
+                      {d.label}
+                    </div>
+                    {/* Daily mining income */}
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <TrendingUp className="w-2.5 h-2.5" style={{ color: isSelected ? '#4ade80' : 'rgba(74,222,128,0.4)' }} />
+                      <span className="text-[10px] font-bold" style={{ color: isSelected ? '#4ade80' : 'rgba(74,222,128,0.4)' }}>
+                        +{dDaily} gram/يوم
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Right: price */}
@@ -247,7 +282,7 @@ function PackageModal({
                     {dGram.toFixed(2)} Gram
                   </div>
                   <div className="text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                    {dCoins.toLocaleString()}.00 COIN
+                    {dCoins.toLocaleString()} COIN
                   </div>
                 </div>
               </button>
@@ -255,20 +290,41 @@ function PackageModal({
           })}
         </div>
 
-        {/* Error / success */}
-        {status === 'ok' && (
-          <div className="mx-4 mb-2 rounded-xl p-2.5 text-center text-sm font-bold" style={{ background: 'rgba(34,197,94,0.12)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}>
-            ✅ تم الشراء! +{coinsGet.toLocaleString()} coin
+        {/* Payment summary — always visible (replaces red error) */}
+        <div
+          className="mx-4 mb-3 rounded-xl px-4 py-3 flex items-center justify-between"
+          style={{
+            background: canAfford ? 'rgba(34,197,94,0.08)' : 'rgba(245,166,35,0.08)',
+            border: `1px solid ${canAfford ? 'rgba(34,197,94,0.2)' : 'rgba(245,166,35,0.2)'}`,
+          }}
+        >
+          <div>
+            <div className="text-xs font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>ستدفع</div>
+            <div className="font-black text-lg leading-none" style={{ color: canAfford ? '#F5A623' : '#fbbf24' }}>
+              {gram.toFixed(2)} GRAM
+            </div>
           </div>
-        )}
+          <div className="text-right">
+            <div className="text-xs font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>رصيدك</div>
+            <div
+              className="font-bold text-sm"
+              style={{ color: canAfford ? '#4ade80' : '#f87171' }}
+            >
+              {totalGram.toFixed(4)}
+              {!canAfford && <span className="text-xs ml-1 opacity-70">(غير كافٍ)</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Error */}
         {status === 'err' && (
           <div className="mx-4 mb-2 rounded-xl p-2.5 text-center text-sm font-bold" style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
             ❌ {errMsg || 'حدث خطأ'}
           </div>
         )}
-        {!canAfford && status === 'idle' && (
-          <div className="mx-4 mb-2 text-center text-xs font-semibold" style={{ color: 'rgba(239,68,68,0.7)' }}>
-            رصيدك {totalGram.toFixed(4)} gram · تحتاج {gram.toFixed(2)} gram
+        {status === 'ok' && (
+          <div className="mx-4 mb-2 rounded-xl p-2.5 text-center text-sm font-bold" style={{ background: 'rgba(34,197,94,0.12)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}>
+            ✅ تم الشراء! +{coins.toLocaleString()} coin
           </div>
         )}
 
@@ -290,20 +346,15 @@ function PackageModal({
               className="flex-shrink-0 flex items-center justify-center rounded-full"
               style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.2)' }}
             >
-              {status === 'loading'
-                ? <Loader2 className="w-5 h-5 text-white animate-spin" />
-                : status === 'ok'
-                  ? <CheckCircle2 className="w-5 h-5 text-white" />
-                  : <span style={{ fontSize: 20 }}>◈</span>
-              }
+              {status === 'loading' ? <Loader2 className="w-5 h-5 text-white animate-spin" />
+               : status === 'ok'    ? <CheckCircle2 className="w-5 h-5 text-white" />
+               : <span style={{ fontSize: 20 }}>◈</span>}
             </div>
             <div className="text-left">
               <div className="text-black font-black text-base leading-tight">
                 {status === 'loading' ? 'جارٍ الشراء...' : status === 'ok' ? 'تم!' : `${gram.toFixed(2)} GRAM`}
               </div>
-              <div className="text-black/60 font-bold text-[11px] tracking-wider">
-                {status === 'loading' ? 'يرجى الانتظار' : `PAY WITH GRAM`}
-              </div>
+              <div className="text-black/60 font-bold text-[11px] tracking-wider">PAY WITH GRAM</div>
             </div>
           </button>
         </div>
@@ -318,9 +369,14 @@ export default function Store() {
   const { holdingWallet, sessionEarnings } = useWallet();
   const totalGram = holdingWallet + sessionEarnings;
 
+  const [settings, setSettings]           = useState<StoreSettings>(DEFAULT_SETTINGS);
   const [activePackage, setActivePackage] = useState<Package | null>(null);
-  const [history, setHistory] = useState<SwapRecord[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
+  const [history, setHistory]             = useState<SwapRecord[]>([]);
+  const [toast, setToast]                 = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchStoreSettings().then(setSettings);
+  }, []);
 
   const loadHistory = useCallback(async () => {
     const initData = getInitData();
@@ -331,9 +387,7 @@ export default function Store() {
       });
       if (res.ok) {
         const data = await res.json() as SwapRecord[];
-        if (Array.isArray(data)) {
-          setHistory(data.filter((h: SwapRecord) => h.gram_amount > 0).slice(0, 5));
-        }
+        if (Array.isArray(data)) setHistory(data.filter(h => h.gram_amount > 0).slice(0, 5));
       }
     } catch { /* best-effort */ }
   }, []);
@@ -352,12 +406,13 @@ export default function Store() {
       <div className="absolute inset-0 z-0" style={{ backgroundColor: 'rgba(0,0,0,0.72)' }} />
 
       <div className="relative z-10 w-full px-3 pt-3 pb-28">
-
-        {/* ── Top row: title + coin balance ── */}
+        {/* Top row */}
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-lg font-black text-white">🏪 المتجر</h1>
-            <p className="text-[10px] text-white/40 mt-0.5">700 COIN = 1 GRAM</p>
+            <p className="text-[10px] text-white/40 mt-0.5">
+              {settings.coinsPerGram} COIN = 1 GRAM
+            </p>
           </div>
           <div className="flex items-center gap-1.5 bg-black/60 border border-primary/30 rounded-xl px-3 py-1.5">
             <span className="text-primary font-bold text-sm">{coins.toLocaleString()}</span>
@@ -365,24 +420,22 @@ export default function Store() {
           </div>
         </div>
 
-        {/* ── Toast notification ── */}
+        {/* Toast */}
         {toast && (
-          <div
-            className="mb-3 rounded-2xl p-3 text-center font-bold text-sm"
-            style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}
-          >
+          <div className="mb-3 rounded-2xl p-3 text-center font-bold text-sm"
+            style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}>
             {toast}
           </div>
         )}
 
-        {/* ── Packages grid: 2 cols ── */}
+        {/* Packages grid */}
         <div className="grid grid-cols-2 gap-3 mb-5">
           {PACKAGES.map(pkg => (
-            <PackageCard key={pkg.id} pkg={pkg} onClick={() => setActivePackage(pkg)} />
+            <PackageCard key={pkg.id} pkg={pkg} settings={settings} onClick={() => setActivePackage(pkg)} />
           ))}
         </div>
 
-        {/* ── Recent purchases ── */}
+        {/* Purchase history */}
         {history.length > 0 && (
           <div>
             <p className="text-[10px] font-black text-white/40 mb-2 flex items-center gap-1.5 uppercase tracking-widest">
@@ -390,11 +443,8 @@ export default function Store() {
             </p>
             <div className="space-y-1.5">
               {history.map(h => (
-                <div
-                  key={h.id}
-                  className="flex items-center justify-between rounded-xl px-3 py-2.5"
-                  style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.06)' }}
-                >
+                <div key={h.id} className="flex items-center justify-between rounded-xl px-3 py-2.5"
+                  style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.06)' }}>
                   <div>
                     <div className="text-white font-bold text-xs">
                       {h.gram_amount.toFixed(2)} gram → <span className="text-primary">{h.coins_amount.toLocaleString()} coin</span>
@@ -409,10 +459,11 @@ export default function Store() {
         )}
       </div>
 
-      {/* ── Package modal ── */}
+      {/* Package modal */}
       {activePackage && (
         <PackageModal
           pkg={activePackage}
+          settings={settings}
           totalGram={totalGram}
           onClose={() => setActivePackage(null)}
           onSuccess={handleSuccess}

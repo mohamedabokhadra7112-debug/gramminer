@@ -4,6 +4,7 @@ import {
   Users, Plus, Trash2, Eye, EyeOff, Ban, Coins, AlertTriangle,
   ChevronDown, ChevronUp, Send, Wrench, Settings, Pickaxe, ArrowDownUp,
   UserPlus, Search, Check, X, ArrowUp, Sparkles, Trophy, Clock, Flame,
+  ShoppingBag,
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -1640,7 +1641,98 @@ export default function Admin() {
         <Section title="مسابقات الـ Gram" icon={Trophy}>
           <TournamentSection />
         </Section>
+        <Section title="إعدادات المتجر" icon={ShoppingBag}>
+          <StoreSettingsSection />
+        </Section>
       </div>
+    </div>
+  );
+}
+
+// ─── Store Settings Section ────────────────────────────────────────────────
+function StoreSettingsSection() {
+  const [coinsPerGram, setCoinsPerGram]   = useState('700');
+  const [dailyGram,    setDailyGram]      = useState('0.05');
+  const [monthlyGram,  setMonthlyGram]    = useState('1.50');
+  const [status, setStatus] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api<Record<string, string>>('GET', '/admin/general?type=settings').then(s => {
+      if (s['store_coins_per_gram'])  setCoinsPerGram(s['store_coins_per_gram']);
+      if (s['store_daily_gram'])      setDailyGram(s['store_daily_gram']);
+      if (s['store_monthly_gram'])    setMonthlyGram(s['store_monthly_gram']);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    const cpg = Number(coinsPerGram);
+    const dg  = Number(dailyGram);
+    const mg  = Number(monthlyGram);
+    if (!cpg || cpg <= 0) { setStatus('❌ نسبة التحويل يجب أن تكون موجبة'); setTimeout(() => setStatus(''), 2500); return; }
+    if (!dg  || dg  <= 0) { setStatus('❌ سعر اليومي يجب أن يكون موجبا');   setTimeout(() => setStatus(''), 2500); return; }
+    if (!mg  || mg  <= 0) { setStatus('❌ سعر الشهري يجب أن يكون موجبا');   setTimeout(() => setStatus(''), 2500); return; }
+    try {
+      await Promise.all([
+        api('POST', '/admin/general?type=settings', { key: 'store_coins_per_gram', value: String(cpg) }),
+        api('POST', '/admin/general?type=settings', { key: 'store_daily_gram',     value: String(dg)  }),
+        api('POST', '/admin/general?type=settings', { key: 'store_monthly_gram',   value: String(mg)  }),
+      ]);
+      setStatus('✅ تم حفظ إعدادات المتجر');
+    } catch { setStatus('❌ فشل الحفظ'); }
+    setTimeout(() => setStatus(''), 2500);
+  };
+
+  if (loading) return <div className="text-muted-foreground text-sm">جار التحميل...</div>;
+
+  const dailyCoins   = Math.round(Number(dailyGram)   * Number(coinsPerGram));
+  const monthlyCoins = Math.round(Number(monthlyGram) * Number(coinsPerGram));
+
+  return (
+    <div className="space-y-4">
+      {/* Exchange rate */}
+      <div className="bg-black/40 rounded-xl p-3 space-y-2">
+        <p className="text-xs text-white/50 font-bold uppercase tracking-wider">نسبة التحويل</p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number" min="1" step="1" value={coinsPerGram}
+            onChange={e => setCoinsPerGram(e.target.value)}
+            className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-primary/50"
+          />
+          <span className="text-white/60 text-sm font-bold whitespace-nowrap">coin = 1 gram</span>
+        </div>
+      </div>
+
+      {/* Daily plan */}
+      <div className="bg-black/40 rounded-xl p-3 space-y-2">
+        <p className="text-xs text-white/50 font-bold uppercase tracking-wider">باقة يومية (DAILY)</p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number" min="0.001" step="0.001" value={dailyGram}
+            onChange={e => setDailyGram(e.target.value)}
+            className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-primary/50"
+          />
+          <span className="text-white/60 text-sm font-bold whitespace-nowrap">gram</span>
+        </div>
+        <p className="text-xs text-primary/70">= {dailyCoins} coin (للباقة الأساسية 700)</p>
+      </div>
+
+      {/* Monthly plan */}
+      <div className="bg-black/40 rounded-xl p-3 space-y-2">
+        <p className="text-xs text-white/50 font-bold uppercase tracking-wider">باقة شهرية (1 MONTH)</p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number" min="0.001" step="0.001" value={monthlyGram}
+            onChange={e => setMonthlyGram(e.target.value)}
+            className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-primary/50"
+          />
+          <span className="text-white/60 text-sm font-bold whitespace-nowrap">gram</span>
+        </div>
+        <p className="text-xs text-primary/70">= {monthlyCoins} coin (للباقة الأساسية 700)</p>
+      </div>
+
+      <StatusMsg msg={status} isError={status.startsWith('❌')} />
+      <Btn onClick={save} className="w-full"><ShoppingBag className="w-3.5 h-3.5" />حفظ إعدادات المتجر</Btn>
     </div>
   );
 }
