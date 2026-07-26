@@ -236,15 +236,22 @@ async function setSetting(key: string, value: string) {
 
 /** Checks if a user is a member of a channel. Returns false on error. */
 async function isMemberOf(token: string, chatId: number, channelUsername: string): Promise<boolean> {
+  // Without a valid token we cannot verify membership — let the user through
+  // rather than silently blocking everyone (which hides the welcome message).
+  if (!token) return true;
   try {
     const r = await fetch(
       `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${channelUsername}&user_id=${chatId}`,
     );
-    const data = (await r.json()) as { result?: { status?: string } };
+    const data = (await r.json()) as { ok?: boolean; result?: { status?: string } };
+    // If Telegram returns ok:false (bad token, bot not in channel, etc.) treat as member
+    // so a misconfigured channel never silently blocks the welcome message.
+    if (!data?.ok) return true;
     const status = data?.result?.status;
     return status === "member" || status === "administrator" || status === "creator";
   } catch {
-    return false;
+    // Network error — don't block the user
+    return true;
   }
 }
 
@@ -1441,20 +1448,23 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
         return;
       }
 
-      // 2. Localized welcome message + open button
-      // Note: sendMessage always sends parse_mode:"HTML" (see the helper above),
-      // so we must NOT include an "entities" field — Telegram rejects messages
-      // that contain both parse_mode and entities simultaneously.
-      const welcomeText = await getLocalizedWelcomeMessage(firstName, "en");
-      await sendMessage(token, chat_id, welcomeText, {
-        reply_markup: {
-          inline_keyboard: [
-            ...(miniAppUrl
-              ? [[{ text: BOT_MSG.en.open_button, web_app: { url: miniAppUrl } }]]
-              : []),
-          ],
-        },
-      });
+      // 2. Localized welcome message + open button — always send on every /start,
+      //    new or returning user. Wrapped in its own try-catch so a sendMessage
+      //    failure (bad token, network hiccup) never silently swallows the reply.
+      try {
+        const welcomeText = await getLocalizedWelcomeMessage(firstName, lang);
+        await sendMessage(token, chat_id, welcomeText, {
+          reply_markup: {
+            inline_keyboard: [
+              ...(miniAppUrl
+                ? [[{ text: BOT_MSG[lang]?.open_button ?? BOT_MSG.en.open_button, web_app: { url: miniAppUrl } }]]
+                : []),
+            ],
+          },
+        });
+      } catch (sendErr) {
+        logger.error({ sendErr, chat_id }, "/start: failed to send welcome message");
+      }
     } else if (text === "/balance") {
       const lang = await getUserLanguage(from.id, from.language_code);
       await sendMessage(token, chat_id, BOT_MSG[lang].balance);
