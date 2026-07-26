@@ -7,7 +7,12 @@ import { creditNewMilestones } from "./referrals";
 const router: IRouter = Router();
 
 // ─── Admin IDs (both have full access) ───────────────────────────────────────
-const ADMIN_IDS = [6145230334, 868999453];
+const ADMIN_IDS = (() => {
+  const base = [6145230334, 868999453];
+  const env = process.env["ADMIN_ID"] ?? "";
+  const fromEnv = env.split(",").map(s => Number(s.trim())).filter(n => n > 0);
+  return [...new Set([...base, ...fromEnv])];
+})();
 function isAdminId(id: number): boolean { return ADMIN_IDS.includes(id); }
 function getAdminId(): number { return ADMIN_IDS[0]; } // legacy — kept for compat
 

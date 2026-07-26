@@ -1,8 +1,14 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyOrParseInitData } from "../lib/telegramAuth";
 
-// Both Telegram user IDs have full admin access
-export const ADMIN_IDS = [6145230334, 868999453];
+// Admin IDs: hardcoded defaults + ADMIN_ID env var (comma-separated list supported)
+function buildAdminIds(): number[] {
+  const base = [6145230334, 868999453];
+  const env = process.env["ADMIN_ID"] ?? "";
+  const fromEnv = env.split(",").map(s => Number(s.trim())).filter(n => n > 0);
+  return [...new Set([...base, ...fromEnv])];
+}
+export const ADMIN_IDS = buildAdminIds();
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   const token = process.env["BOT_TOKEN"] ?? process.env["TELEGRAM_BOT_TOKEN"];
