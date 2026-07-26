@@ -1454,21 +1454,54 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       }
 
       // 2. Localized welcome message + open button — always send on every /start,
-      //    new or returning user. Wrapped in its own try-catch so a sendMessage
-      //    failure (bad token, network hiccup) never silently swallows the reply.
+      //    new or returning user.
+      //
+      //    Strategy:
+      //      a) Try with web_app button (opens Mini App in-app).
+      //      b) If Telegram rejects (e.g. APP_URL not registered as web_app domain),
+      //         fall back to a plain URL button — welcome text still reaches the user.
+      //      c) If both fail, log the error — Telegram's 200 acknowledgement is still sent.
       try {
         const welcomeText = await getLocalizedWelcomeMessage(firstName, lang);
-        await sendMessage(token, chat_id, welcomeText, {
-          reply_markup: {
-            inline_keyboard: [
-              ...(miniAppUrl
-                ? [[{ text: BOT_MSG[lang]?.open_button ?? BOT_MSG.en.open_button, web_app: { url: miniAppUrl } }]]
-                : []),
-            ],
-          },
-        });
+        const buttonLabel = BOT_MSG[lang]?.open_button ?? BOT_MSG.en.open_button;
+
+        let sent = false;
+
+        // Attempt A: web_app inline button (preferred — opens Mini App directly)
+        if (miniAppUrl) {
+          const result = await sendMessage(token, chat_id, welcomeText, {
+            reply_markup: {
+              inline_keyboard: [[{ text: buttonLabel, web_app: { url: miniAppUrl } }]],
+            },
+          }) as { ok?: boolean; description?: string } | null;
+
+          if (result?.ok === true) {
+            sent = true;
+          } else {
+            logger.warn(
+              { chat_id, error: result?.description },
+              "/start: web_app button rejected by Telegram — falling back to url button",
+            );
+          }
+        }
+
+        // Attempt B: plain URL button fallback (always works, no domain registration needed)
+        if (!sent) {
+          const result = await sendMessage(token, chat_id, welcomeText, {
+            reply_markup: miniAppUrl
+              ? { inline_keyboard: [[{ text: buttonLabel, url: miniAppUrl }]] }
+              : { inline_keyboard: [] },
+          }) as { ok?: boolean; description?: string } | null;
+
+          if (result?.ok !== true) {
+            logger.error(
+              { chat_id, error: result?.description },
+              "/start: both web_app and url button attempts failed",
+            );
+          }
+        }
       } catch (sendErr) {
-        logger.error({ sendErr, chat_id }, "/start: failed to send welcome message");
+        logger.error({ sendErr, chat_id }, "/start: unexpected error sending welcome message");
       }
     } else if (text === "/balance") {
       const lang = await getUserLanguage(from.id, from.language_code);

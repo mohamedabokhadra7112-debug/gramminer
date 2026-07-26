@@ -153,6 +153,78 @@ router.post("/ads/watched", async (req, res): Promise<void> => {
   }
 });
 
+// ── GET /api/ads/reward ───────────────────────────────────────────────────────
+// Adsgram server-to-server reward callback.
+// Adsgram calls this URL when a user completes watching an ad.
+// URL format configured in Adsgram dashboard:
+//   https://<your-domain>/api/ads/reward?userId=[userId]
+// [userId] is replaced by Adsgram with the Telegram user ID.
+//
+// Optional: set ADS_REWARD_SECRET env var. If set, Adsgram must pass
+// ?secret=<value> and it must match — prevents fake reward calls.
+router.get("/ads/reward", async (req, res): Promise<void> => {
+  // Verify secret token if configured
+  const secret = process.env["ADS_REWARD_SECRET"];
+  if (secret) {
+    const provided = req.query["secret"] as string | undefined;
+    if (provided !== secret) {
+      logger.warn({ ip: req.ip }, "ads/reward: invalid secret");
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+  }
+
+  const userIdRaw = req.query["userId"] as string | undefined;
+  const telegramId = Number(userIdRaw);
+  if (!telegramId || isNaN(telegramId) || telegramId <= 0) {
+    res.status(400).json({ error: "userId required" });
+    return;
+  }
+
+  await ensureAdsSchema();
+
+  try {
+    const { pool } = await import("@workspace/db");
+
+    const settings = await getAdSettings();
+    const todayCount = await watchesToday(telegramId);
+
+    if (todayCount >= settings.dailyLimit) {
+      // Acknowledge to Adsgram (don't credit, but don't error — they'd retry)
+      logger.info({ telegramId, todayCount }, "ads/reward: daily limit reached — skipped");
+      res.json({ ok: true, skipped: true, reason: "daily_limit" });
+      return;
+    }
+
+    // Credit coins
+    await pool.query(
+      `UPDATE gm_users
+       SET coins     = coins + $1,
+           ad_watches = COALESCE(ad_watches, 0) + 1
+       WHERE telegram_id = $2`,
+      [settings.rewardCoins, telegramId],
+    );
+
+    // Log the watch event
+    await pool.query(
+      `INSERT INTO gm_ad_watches (telegram_id, coins_earned) VALUES ($1, $2)`,
+      [telegramId, settings.rewardCoins],
+    );
+
+    logger.info({ telegramId, coinsEarned: settings.rewardCoins }, "ads/reward: coins credited");
+
+    // Fire-and-forget: referral milestone check
+    import("./referrals").then(m => {
+      m.updateReferralCondition(telegramId, "ad").catch(() => {});
+    }).catch(() => {});
+
+    res.json({ ok: true, coinsEarned: settings.rewardCoins });
+  } catch (err) {
+    logger.error({ err, telegramId }, "GET /ads/reward failed");
+    res.status(500).json({ error: "Internal error" });
+  }
+});
+
 // ── GET /api/ads/status ───────────────────────────────────────────────────────
 router.get("/ads/status", async (req, res): Promise<void> => {
   const token = getBotToken();
