@@ -543,14 +543,24 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
     // Use NUMERIC arithmetic then cast back to double precision so every claim
     // is stored with at most 6 decimal places — preventing floating-point drift
     // from accumulating across thousands of small additions.
+    const now = new Date();
     const [row] = await db
       .update(usersTable)
       .set({
         balance: sql`ROUND(CAST(${usersTable.balance} AS numeric) + CAST(${amount} AS numeric), 6)::double precision`,
-        lastActiveAt: new Date(),
+        lastActiveAt: now,
       })
       .where(eq(usersTable.telegramId, user.id))
       .returning({ balance: usersTable.balance });
+
+    // Stamp last_mining_at so the server-side miningSettler doesn't re-credit
+    // the period the client just claimed — prevents double counting.
+    // last_mining_at is added lazily (not in Drizzle schema), so we use raw SQL.
+    const { pool } = await import("@workspace/db");
+    await pool.query(
+      `UPDATE gm_users SET last_mining_at = $1 WHERE telegram_id = $2`,
+      [now, user.id],
+    ).catch(() => {}); // non-critical: settler will self-correct next cycle
 
     // Log this claim for rolling 24-hour earnings tracking (fire-and-forget).
     ensureEarningsSchema().then(async () => {
