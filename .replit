@@ -16,3 +16,8 @@ externalPort = 80
 [[ports]]
 localPort = 22967
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+VITE_ADSGRAM_BLOCK_ID = "39911"
