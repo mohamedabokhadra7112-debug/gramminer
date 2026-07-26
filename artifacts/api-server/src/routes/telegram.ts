@@ -1329,7 +1329,7 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
 
   try {
     if (text === "/start" || text.startsWith("/start ")) {
-      logger.debug({ chat_id, firstName, isNewUser }, "/start handler entered");
+      logger.info({ chat_id, firstName, isNewUser }, "/start received");
 
       // ── Process referral code embedded in /start payload ──────────────────
       // Supported formats:
