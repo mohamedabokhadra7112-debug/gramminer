@@ -81,12 +81,17 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
       await loadStatus();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes('skipped') || msg.includes('closed') || msg.includes('reject')) {
+      const lower = msg.toLowerCase();
+      if (lower.includes('skipped') || lower.includes('closed') || lower.includes('reject') || lower.includes('cancel')) {
         setFeedback({ ok: false, msg: '⚠️ لم تكتمل مشاهدة الإعلان' });
-      } else if (msg.includes('limit')) {
+      } else if (lower.includes('limit')) {
         setFeedback({ ok: false, msg: '⏰ وصلت للحد اليومي' });
+      } else if (lower.includes('404') || lower.includes('405') || lower.includes('no ads') || lower.includes('not found')) {
+        setFeedback({ ok: false, msg: '📭 لا تتوفر إعلانات الآن، حاول لاحقاً' });
+      } else if (lower.includes('network') || lower.includes('fetch') || lower.includes('failed to load')) {
+        setFeedback({ ok: false, msg: '🌐 خطأ في الاتصال، تحقق من الإنترنت' });
       } else {
-        setFeedback({ ok: false, msg: `❌ ${msg}` });
+        setFeedback({ ok: false, msg: '⚠️ لا تتوفر إعلانات الآن، حاول لاحقاً' });
       }
     } finally {
       setWatching(false);
