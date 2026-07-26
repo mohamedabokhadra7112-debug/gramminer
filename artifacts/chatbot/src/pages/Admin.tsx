@@ -7,7 +7,9 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 
-const API = import.meta.env.VITE_API_URL ?? '';
+// In dev, always use relative paths so the Vite proxy forwards to the API server.
+// In production, use VITE_API_URL if the frontend and API are on different origins.
+const API = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 function initData(): string { return window.Telegram?.WebApp?.initData ?? ''; }
 function adminHeaders(): HeadersInit {

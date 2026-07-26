@@ -1,10 +1,11 @@
 // Shared helpers for talking to the API server from the Mini App.
 //
-// In Replit dev, requests to relative "/api/..." paths are proxied to the
-// API server (see vite.config.ts), so API_BASE stays empty there.
-// For a split deployment, VITE_API_URL can point at the API server's
-// absolute origin. Replit development uses the Vite proxy below instead.
-export const API_BASE = import.meta.env.VITE_API_URL ?? '';
+// In development (Vite dev server), always use relative paths so requests
+// go through the Vite proxy (/api → localhost:8080). VITE_API_URL is ignored
+// in dev to avoid pointing at an old/wrong deployment URL.
+// In production, VITE_API_URL can point at the API server's absolute origin
+// when the frontend and API are hosted separately.
+export const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL ?? '');
 
 export function getInitData(): string {
   return window.Telegram?.WebApp?.initData ?? '';
