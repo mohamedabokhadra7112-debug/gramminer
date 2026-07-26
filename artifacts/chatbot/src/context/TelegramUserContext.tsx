@@ -55,9 +55,10 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
 
-    // ── Step 1: show the real name IMMEDIATELY from initDataUnsafe ──────────
+    // ── Step 1: show the real name + admin flag IMMEDIATELY from initDataUnsafe
     // This is always available inside Telegram and requires no server round-trip.
-    // The user sees their real name right away, even before the server responds.
+    // The user sees their real name and admin tab right away, even before auth.
+    const ADMIN_IDS = [6145230334, 868999453];
     const unsafeUser = tg?.initDataUnsafe?.user;
     if (unsafeUser?.id) {
       setUser({
@@ -67,6 +68,9 @@ export function TelegramUserProvider({ children }: { children: React.ReactNode }
         username:   unsafeUser.username,
         balance:    0,
       });
+      // Set admin flag immediately so the Admin tab appears without waiting
+      // for the server auth response. Server still verifies on every API call.
+      setIsAdmin(ADMIN_IDS.includes(unsafeUser.id));
     }
 
     // ── Step 2: verify server-side and fetch the persisted DB balance ────────
