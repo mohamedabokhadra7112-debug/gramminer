@@ -10,9 +10,9 @@ export default function BottomNav({ showAdmin = false }: { showAdmin?: boolean }
 
   const navItems = [
     { path: '/',        label: t('nav_mine'),    icon: Pickaxe      },
-    { path: '/miners',  label: 'متجر',           icon: ShoppingBag  },
+    { path: '/miners',  label: t('nav_store'),   icon: ShoppingBag  },
     { path: '/tasks',   label: t('nav_tasks'),   icon: ClipboardList },
-    { path: '/combo',   label: 'كومبو',          icon: Sparkles     },
+    { path: '/combo',   label: t('nav_combo'),   icon: Sparkles     },
     { path: '/friends', label: t('nav_friends'), icon: Users        },
     { path: '/profile', label: t('nav_profile'), icon: User         },
     ...(showAdmin ? [{ path: '/admin', label: t('nav_admin'), icon: Shield }] : []),

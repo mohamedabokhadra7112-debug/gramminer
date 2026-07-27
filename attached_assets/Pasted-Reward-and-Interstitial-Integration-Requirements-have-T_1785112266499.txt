@@ -1,0 +1,83 @@
+Reward and Interstitial Integration
+Requirements
+have Telegram mini app
+know where to show ad, if not, then see Ad integration examples
+have blockId, if not, then see Get blockId section
+Installation
+You have two options to integrate AdsGram SDK.
+
+Insert script
+Place the script sad.min.js in the <head> tag using this code:
+
+html
+<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+Install via npm for React and Vue.
+More info about integration from packages see in documentation for React and Vue.
+
+
+React
+
+Vue
+bash
+npm install @adsgram/react
+Initialize AdsGram SDK
+js
+const AdController = window.Adsgram.init({ blockId: "your-block-id" });
+IMPORTANT
+
+Initialization is only required for Rewarded and Interstitial formats. For the Task format, initialization is not needed.
+For integration examples of the Task format, see Task Integration.
+
+More info about init function you can find in API Reference section.
+
+your-block-id — you get from your account on https://partner.adsgram.ai
+Detailed instruction on how to get blockId you can find in Get blockId section
+
+Show banner
+Rewarded format, which mean you should give user reward when he watched ad till the end.
+More info about show ad requirements.
+Interstitial format, which mean user can skip an ad before the end.
+More info about show ad requirements.
+INFO
+
+Below are code examples for the Rewarded format. These examples are also relevant for the Interstitial format. The only difference is that the AdController.show() promise resolves for ads that have been viewed till the end, as well as those that have been closed. Simple example you can find here
+
+In most cases, the code below is used inside the click handler.
+For code examples with vanilla js, React, Unity check Code examples section.
+
+
+javascript
+
+typescript
+js
+AdController.show().then((result) => {
+    // user watch ad till the end or close it in interstitial format
+    // your code to reward user for rewarded format
+}).catch((result) => {
+    // user get error during playing ad
+    // do nothing or whatever you want
+})
+result has the following types:
+
+ts
+interface ShowPromiseResult {
+    done: boolean; // true if user watch till the end or close it in interstitial format, otherwise false
+    description: string; // event description
+    state: 'load' | 'render' | 'playing' | 'destroy'; // banner state
+    error: boolean; // true if event was emitted due to error, otherwise false
+}
+INFO
+
+showPromise becomes resolved if the user watches the ad till the end or close it in interstitial format, otherwise rejected.
+
+TIP
+
+Chain promise with finally if you need to add any extra action after the ad ends playing, is skipped or gets an error.
+
+Congratulations, you've just showed your first ad using AdsGram!
+
+More Info
+Code integrate examples for React, Unity, vanilla js
+If you have troubles with integrate check Troubleshooting section
+Advanced AdController api reference you can find in API Reference section
+If you use Typescript check Typescript section

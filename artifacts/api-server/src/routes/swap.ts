@@ -169,6 +169,19 @@ router.post("/telegram/swap", async (req, res): Promise<void> => {
   }
 });
 
+// ── GET /api/telegram/swap/rate ──────────────────────────────────────────────
+// Public (authenticated) endpoint the frontend uses to display the live rate.
+// Returns gramToCoins = how many coins 1 gram is worth (inverse of stored rate).
+router.get("/telegram/swap/rate", async (_req, res): Promise<void> => {
+  try {
+    const rate = await getSwapRate(); // gram per 1 coin
+    const gramToCoins = rate > 0 ? Math.round(1 / rate) : 1000;
+    res.json({ rate, gramToCoins });
+  } catch {
+    res.json({ rate: DEFAULT_RATE, gramToCoins: Math.round(1 / DEFAULT_RATE) });
+  }
+});
+
 // ── GET /api/telegram/swap/history ───────────────────────────────────────────
 router.get("/telegram/swap/history", async (req, res): Promise<void> => {
   const token = getBotToken();

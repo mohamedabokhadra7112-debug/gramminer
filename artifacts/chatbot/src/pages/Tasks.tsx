@@ -3,9 +3,10 @@ import { ClipboardList, CheckCircle2, Circle, ExternalLink, Loader2, Radio, Play
 import { telegramApiPost, getInitData, API_BASE } from '@/lib/telegramApi';
 import { useWallet } from '@/context/WalletContext';
 import { useCoins } from '@/context/CoinsContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useAdsGram } from '@/lib/adsgram';
 
-const API = import.meta.env.VITE_API_URL ?? '';
+const API = API_BASE;
 
 interface Task {
   id: number;
@@ -43,6 +44,7 @@ interface AdStatus {
 }
 
 function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) {
+  const { t } = useLanguage();
   const { showAd, configured } = useAdsGram();
   const [adStatus, setAdStatus] = useState<AdStatus | null>(null);
   const [watching, setWatching] = useState(false);
@@ -83,15 +85,15 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
       const msg = e instanceof Error ? e.message : String(e);
       const lower = msg.toLowerCase();
       if (lower.includes('skipped') || lower.includes('closed') || lower.includes('reject') || lower.includes('cancel')) {
-        setFeedback({ ok: false, msg: '⚠️ لم تكتمل مشاهدة الإعلان' });
+        setFeedback({ ok: false, msg: t('ad_not_completed') });
       } else if (lower.includes('limit')) {
-        setFeedback({ ok: false, msg: '⏰ وصلت للحد اليومي' });
+        setFeedback({ ok: false, msg: t('ad_daily_limit') });
       } else if (lower.includes('404') || lower.includes('405') || lower.includes('no ads') || lower.includes('not found')) {
-        setFeedback({ ok: false, msg: '📭 لا تتوفر إعلانات الآن، حاول لاحقاً' });
+        setFeedback({ ok: false, msg: t('ad_none_available') });
       } else if (lower.includes('network') || lower.includes('fetch') || lower.includes('failed to load')) {
-        setFeedback({ ok: false, msg: '🌐 خطأ في الاتصال، تحقق من الإنترنت' });
+        setFeedback({ ok: false, msg: t('ad_network_error') });
       } else {
-        setFeedback({ ok: false, msg: '⚠️ لا تتوفر إعلانات الآن، حاول لاحقاً' });
+        setFeedback({ ok: false, msg: t('ad_none_available') });
       }
     } finally {
       setWatching(false);
@@ -122,10 +124,10 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
           </div>
           <div className="min-w-0">
             <div className={`font-bold text-sm ${exhausted ? 'text-white/40 line-through' : 'text-white'}`}>
-              شاهد إعلان واكسب
+              {t('ad_watch_earn')}
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              +{reward} coin لكل إعلان
+              +{reward} coin {t('ad_per_ad')}
             </div>
             <div className="flex items-center gap-1 mt-1.5">
               {Array.from({ length: Math.min(limit, 10) }).map((_, i) => (
@@ -161,8 +163,8 @@ function WatchAdCard({ onCoinsEarned }: { onCoinsEarned: (n: number) => void }) 
           {watching
             ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
             : exhausted
-              ? 'انتهى اليوم'
-              : <><PlayCircle className="w-3.5 h-3.5" /> شاهد</>
+              ? t('ad_done_today')
+              : <><PlayCircle className="w-3.5 h-3.5" /> {t('ad_watch')}</>
           }
         </button>
       </div>
@@ -198,6 +200,7 @@ function PartnerTaskCard({
   onJoin: () => void;
   onVerify: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <div
       className="rounded-2xl p-4"
@@ -249,7 +252,7 @@ function PartnerTaskCard({
                 border: '1px solid rgba(99,102,241,0.3)',
               }}
             >
-              <ExternalLink className="w-3 h-3" /> انضم
+              <ExternalLink className="w-3 h-3" /> {t('tasks_join')}
             </button>
             <button
               onClick={onVerify}
@@ -261,7 +264,7 @@ function PartnerTaskCard({
                 border: '1px solid rgba(245,166,35,0.3)',
               }}
             >
-              {isCompleting ? <Loader2 className="w-3 h-3 animate-spin" /> : '✓ تحقق'}
+              {isCompleting ? <Loader2 className="w-3 h-3 animate-spin" /> : t('tasks_verify_check')}
             </button>
           </div>
         )}
@@ -285,6 +288,7 @@ function PartnerTaskCard({
 // ─── Main Tasks Page ──────────────────────────────────────────────────────────
 export default function Tasks() {
   const { addCoins } = useCoins();
+  const { t } = useLanguage();
   const [tasks, setTasks]     = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
@@ -336,9 +340,9 @@ export default function Tasks() {
       loadCompleted(),
     ]).then(([taskData]) => {
       if (Array.isArray(taskData)) setTasks(taskData as Task[]);
-    }).catch(() => setError('تعذّر تحميل المهام'))
+    }).catch(() => setError(t('tasks_load_failed')))
       .finally(() => setLoading(false));
-  }, [loadCompleted]);
+  }, [loadCompleted, t]);
 
   const handleComplete = async (task: Task) => {
     if (completing !== null) return;
@@ -381,7 +385,7 @@ export default function Tasks() {
         addCoins(task.reward);
         setFeedback({ id: task.id, msg: `✅ +${task.reward} coin`, ok: true });
       } else {
-        setFeedback({ id: task.id, msg: `❌ ${data.message ?? 'خطأ'}`, ok: false });
+        setFeedback({ id: task.id, msg: `❌ ${data.message ?? t('tasks_error')}`, ok: false });
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -405,7 +409,7 @@ export default function Tasks() {
         addCoins(task.reward);
         setFeedback({ id: task.id, msg: `✅ +${task.reward} coin`, ok: true });
       } else {
-        setFeedback({ id: task.id, msg: `❌ ${data.message ?? 'لم يتم التحقق'}`, ok: false });
+        setFeedback({ id: task.id, msg: `❌ ${data.message ?? t('tasks_not_verified')}`, ok: false });
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -426,7 +430,7 @@ export default function Tasks() {
 
       {/* Header */}
       <div className="relative z-10 mb-4 flex items-center justify-between">
-        <h1 className="text-3xl font-black text-white tracking-tight">المهام</h1>
+        <h1 className="text-3xl font-black text-white tracking-tight">{t('tasks_header')}</h1>
         <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
           <ClipboardList className="text-primary w-6 h-6" />
         </div>
@@ -443,7 +447,7 @@ export default function Tasks() {
             <div className="flex items-center gap-2 pt-1">
               <Users className="w-4 h-4" style={{ color: '#818cf8' }} />
               <span className="text-xs font-black tracking-widest uppercase" style={{ color: '#818cf8' }}>
-                الشركاء
+                {t('tasks_partners')}
               </span>
               <div className="flex-1 h-px" style={{ background: 'rgba(99,102,241,0.25)' }} />
             </div>
@@ -482,7 +486,7 @@ export default function Tasks() {
         {!loading && !error && regularTasks.length === 0 && (
           <div className="text-center py-8">
             <ClipboardList className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-muted-foreground text-sm">لا توجد مهام حالياً</p>
+            <p className="text-muted-foreground text-sm">{t('tasks_none')}</p>
           </div>
         )}
 
@@ -490,7 +494,7 @@ export default function Tasks() {
         {regularTasks.length > 0 && (
           <div className="flex items-center gap-2 pt-1">
             <ClipboardList className="w-4 h-4 text-primary/60" />
-            <span className="text-xs font-black tracking-widest uppercase text-primary/60">المهام</span>
+            <span className="text-xs font-black tracking-widest uppercase text-primary/60">{t('tasks_header')}</span>
             <div className="flex-1 h-px bg-primary/10" />
           </div>
         )}
@@ -538,7 +542,7 @@ export default function Tasks() {
                       <p className="text-xs text-primary/70 mt-0.5">📢 @{task.channelUsername}</p>
                     )}
                     <div className={`text-xs font-black mt-0.5 ${isDone ? 'text-muted-foreground' : 'text-primary'}`}>
-                      +{task.reward} coin{task.isDaily ? ' · يومية' : ''}
+                      +{task.reward} coin{task.isDaily ? ` · ${t('tasks_daily')}` : ''}
                     </div>
                   </div>
                 </div>
@@ -556,14 +560,14 @@ export default function Tasks() {
                           disabled={isCompleting}
                           className="px-3 py-1.5 rounded-full bg-primary/20 border border-primary/30 text-primary text-xs font-bold transition-colors hover:bg-primary/30 flex items-center gap-1"
                         >
-                          <ExternalLink className="w-3 h-3" /> انضم
+                          <ExternalLink className="w-3 h-3" /> {t('tasks_join')}
                         </button>
                         <button
                           onClick={() => handleChannelVerify(task)}
                           disabled={isCompleting}
                           className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors"
                         >
-                          {isCompleting ? '...' : 'تحقق'}
+                          {isCompleting ? '...' : t('tasks_verify')}
                         </button>
                       </>
                     ) : (
@@ -573,7 +577,7 @@ export default function Tasks() {
                         className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors flex items-center gap-1.5 disabled:opacity-50"
                       >
                         {isCompleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
-                        انجاز
+                        {t('tasks_complete')}
                       </button>
                     )
                   ) : null}

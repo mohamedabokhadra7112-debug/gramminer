@@ -23,6 +23,8 @@ type AdminConvStep =
   | { step: "user_search" }
   | { step: "user_add_coins";   targetId: number; targetName: string }
   | { step: "user_rm_coins";    targetId: number; targetName: string }
+  | { step: "user_set_gram";    targetId: number; targetName: string }
+  | { step: "user_set_coins";   targetId: number; targetName: string }
   | { step: "add_task_title";   taskType: "normal" | "channel" | "daily" | "referral" }
   | { step: "add_task_reward";  taskType: "normal" | "channel" | "daily" | "referral"; title: string }
   | { step: "add_task_ch_user"; title: string; reward: number }
@@ -181,6 +183,10 @@ function userActionsKeyboard(targetId: number, u: AnyUser) {
       [
         { text: "➕ إضافة coins", callback_data: `admin:user:add_coins:${targetId}` },
         { text: "➖ خصم coins",   callback_data: `admin:user:rm_coins:${targetId}`  },
+      ],
+      [
+        { text: "💰 تعديل رصيد gram", callback_data: `admin:user:set_gram:${targetId}`  },
+        { text: "🪙 تعديل رصيد coin", callback_data: `admin:user:set_coins:${targetId}` },
       ],
       [{ text: "« رجوع", callback_data: "admin:back" }],
     ],
@@ -518,10 +524,122 @@ router.post("/telegram/auth", async (req, res): Promise<void> => {
   res.status(200).json({ user: { ...user, balance, coins }, isAdmin: isAdminId(user.id) });
 });
 
-// Securely persists a mining-session claim. The claimed amount is added to
-// the user's DB-backed balance; the Telegram identity is re-verified from
-// initData server-side, so a client can never claim on behalf of another
-// user or spoof its own telegram_id.
+// ─── Continuous coin-based mining (lazy schema + shared accrual math) ────────
+//
+// Mining accrues CONTINUOUSLY (even while the app is closed) from `coins` at a
+// per-second rate, since `last_mining_at`, capped at 24 hours. Claiming credits
+// the server-computed accrued value and resets last_mining_at, restarting the
+// cycle. The server is the single source of truth for last_mining_at.
+//
+//   perSecond (gram) = coins / 14_000 / 86_400   (700 coin = 1 gram, 5 %/day)
+const MINING_CAP_SECONDS = 86_400; // 24h cap on unclaimed accrual
+
+let miningColumnReady = false;
+async function ensureMiningColumn(): Promise<void> {
+  if (miningColumnReady) return;
+  try {
+    const { pool } = await import("@workspace/db");
+    // Lazy migration (never at startup) — matches the coins-column pattern.
+    await pool.query(
+      `ALTER TABLE gm_users ADD COLUMN IF NOT EXISTS last_mining_at timestamp`,
+    );
+    miningColumnReady = true;
+  } catch { /* non-critical — column may already exist */ }
+}
+
+/**
+ * Computes the server-authoritative accrued mining earnings for a user.
+ * If last_mining_at is NULL, it is stamped to NOW() and 0 is returned (the
+ * accrual clock starts now). Elapsed time is capped at 24 hours.
+ */
+async function computeAccrued(telegramId: number): Promise<{
+  accrued: number;
+  elapsedSeconds: number;
+  cappedAt24h: boolean;
+  lastMiningAt: string | null;
+  coins: number;
+}> {
+  await ensureMiningColumn();
+  const { pool } = await import("@workspace/db");
+
+  const r = await pool.query<{ coins: number | null; last_mining_at: Date | string | null }>(
+    `SELECT coins, last_mining_at FROM gm_users WHERE telegram_id = $1 LIMIT 1`,
+    [telegramId],
+  );
+  const coins = Math.max(0, Number(r.rows[0]?.coins ?? 0) || 0);
+  const rawLast = r.rows[0]?.last_mining_at ?? null;
+
+  // First-ever accrual read: start the clock now, return 0.
+  if (!rawLast) {
+    const now = new Date();
+    await pool.query(
+      `UPDATE gm_users SET last_mining_at = $1 WHERE telegram_id = $2`,
+      [now, telegramId],
+    ).catch(() => {});
+    return {
+      accrued: 0,
+      elapsedSeconds: 0,
+      cappedAt24h: false,
+      lastMiningAt: now.toISOString(),
+      coins,
+    };
+  }
+
+  const lastMs = new Date(rawLast).getTime();
+  const nowMs = Date.now();
+  const rawElapsed = Math.max(0, (nowMs - lastMs) / 1000);
+  const cappedAt24h = rawElapsed > MINING_CAP_SECONDS;
+  const elapsedSeconds = Math.min(rawElapsed, MINING_CAP_SECONDS);
+
+  const perSecond = coins > 0 ? coins / 14_000 / 86_400 : 0;
+  const accrued = Math.round(perSecond * elapsedSeconds * 1_000_000) / 1_000_000;
+
+  return {
+    accrued: Number.isFinite(accrued) ? accrued : 0,
+    elapsedSeconds,
+    cappedAt24h,
+    lastMiningAt: new Date(rawLast).toISOString(),
+    coins,
+  };
+}
+
+// Returns the server-computed accrued (unclaimed) mining earnings for this
+// user. Accrual is continuous and time-based (coins × per-second rate ×
+// elapsed since last_mining_at, capped at 24h). Read-only except that a NULL
+// last_mining_at is stamped to NOW() (starts the clock) and 0 is returned.
+router.get("/telegram/mining/accrued", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+  const initData = req.headers["x-init-data"];
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "x-init-data header required" }); return;
+  }
+
+  const user = verifyOrParseInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid initData" }); return; }
+
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  try {
+    // Ensure the row exists for first-time users who haven't hit /auth yet.
+    await upsertUser({ id: user.id, first_name: user.first_name, last_name: user.last_name, username: user.username });
+    const result = await computeAccrued(user.id);
+    res.status(200).json(result);
+  } catch (err) {
+    logger.error({ err, userId: user.id }, "GET /telegram/mining/accrued failed");
+    res.status(500).json({ error: "Failed to compute accrued earnings" });
+  }
+});
+
+// Securely settles a mining-session claim. The client-sent `amount` (if any)
+// is IGNORED — the server computes the accrued value itself from `coins` and
+// `last_mining_at` (capped at 24h), credits it, and resets last_mining_at to
+// NOW() so the 24h accrual cycle restarts. The Telegram identity is re-verified
+// from initData server-side, so a client can never claim on behalf of another
+// user, spoof its telegram_id, or inflate the credited amount.
+//
+// Backwards compatible: the old body shape { initData, amount } is still
+// accepted without error; `amount` is simply not trusted.
 router.post("/telegram/claim", async (req, res): Promise<void> => {
   const { token } = getBotConfig();
   // Fallback to unsigned parse when BOT_TOKEN is absent so earnings are never lost.
@@ -535,12 +653,90 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
   const user = verifyOrParseInitData(initData, token);
   if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
 
-  // Parse and round to 6 decimal places to prevent floating-point accumulation.
+  const db = await getDb();
+  if (!db) { res.status(503).json({ error: "Database not available" }); return; }
+
+  try {
+    const { usersTable } = await import("@workspace/db");
+    const { eq, sql } = await import("drizzle-orm");
+    // Ensure the row exists (first-time claimers who never hit /auth yet).
+    await upsertUser({ id: user.id, first_name: user.first_name, last_name: user.last_name, username: user.username });
+
+    // Server-authoritative accrued value — the client amount is not trusted.
+    const { accrued } = await computeAccrued(user.id);
+    const claimed = Math.round(Number(accrued) * 1_000_000) / 1_000_000;
+
+    const now = new Date();
+
+    // Always reset last_mining_at to NOW() so the 24h accrual cycle restarts,
+    // even when there is nothing to credit (keeps the clock honest).
+    // last_mining_at is added lazily (not in Drizzle schema), so we use raw SQL.
+    const { pool } = await import("@workspace/db");
+
+    if (!Number.isFinite(claimed) || claimed <= 0) {
+      await pool.query(
+        `UPDATE gm_users SET last_mining_at = $1, last_active_at = $1 WHERE telegram_id = $2`,
+        [now, user.id],
+      ).catch(() => {});
+      const balance = await getUserBalance(user.id);
+      res.status(200).json({ balance, claimed: 0 });
+      return;
+    }
+
+    // Use NUMERIC arithmetic then cast back to double precision so every claim
+    // is stored with at most 6 decimal places — preventing floating-point drift
+    // from accumulating across thousands of small additions.
+    const [row] = await db
+      .update(usersTable)
+      .set({
+        balance: sql`ROUND(CAST(${usersTable.balance} AS numeric) + CAST(${claimed} AS numeric), 6)::double precision`,
+        lastActiveAt: now,
+      })
+      .where(eq(usersTable.telegramId, user.id))
+      .returning({ balance: usersTable.balance });
+
+    await pool.query(
+      `UPDATE gm_users SET last_mining_at = $1 WHERE telegram_id = $2`,
+      [now, user.id],
+    ).catch(() => {}); // non-critical
+
+    // Log this claim for rolling 24-hour earnings tracking (fire-and-forget).
+    ensureEarningsSchema().then(async () => {
+      try {
+        const { pool } = await import("@workspace/db");
+        await pool.query(
+          "INSERT INTO gm_earnings_log (telegram_id, amount) VALUES ($1, $2)",
+          [user.id, claimed],
+        );
+      } catch { /* non-critical */ }
+    });
+
+    res.status(200).json({ balance: row?.balance ?? claimed, claimed });
+  } catch (err) {
+    logger.error({ err, userId: user.id }, "Failed to persist claim");
+    res.status(500).json({ error: "Failed to persist claim" });
+  }
+});
+
+// Lightweight credit endpoint for gram earned from OTHER sources (e.g. miner
+// clicks in Miners.tsx). Credits a small positive amount directly WITHOUT
+// touching last_mining_at (so it never interferes with the continuous mining
+// accrual cycle). Amount is validated: finite, > 0, <= 100.
+router.post("/telegram/credit", async (req, res): Promise<void> => {
+  const { token } = getBotConfig();
+
+  const initData = req.body?.initData;
+  if (typeof initData !== "string" || !initData) {
+    res.status(400).json({ error: "initData is required" });
+    return;
+  }
+
+  const user = verifyOrParseInitData(initData, token);
+  if (!user) { res.status(401).json({ error: "Invalid or expired Telegram initData" }); return; }
+
   const amount = Math.round(Number(req.body?.amount) * 1_000_000) / 1_000_000;
-  // Reject non-finite, non-positive, or implausibly large amounts — a basic
-  // guard against obvious client tampering until real anti-cheat exists.
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000) {
-    res.status(400).json({ error: "Invalid claim amount" });
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100) {
+    res.status(400).json({ error: "Invalid credit amount" });
     return;
   }
 
@@ -550,11 +746,8 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
   try {
     const { usersTable } = await import("@workspace/db");
     const { eq, sql } = await import("drizzle-orm");
-    // Ensure the row exists (first-time claimers who never hit /auth yet).
     await upsertUser({ id: user.id, first_name: user.first_name, last_name: user.last_name, username: user.username });
-    // Use NUMERIC arithmetic then cast back to double precision so every claim
-    // is stored with at most 6 decimal places — preventing floating-point drift
-    // from accumulating across thousands of small additions.
+
     const now = new Date();
     const [row] = await db
       .update(usersTable)
@@ -565,16 +758,7 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
       .where(eq(usersTable.telegramId, user.id))
       .returning({ balance: usersTable.balance });
 
-    // Stamp last_mining_at so the server-side miningSettler doesn't re-credit
-    // the period the client just claimed — prevents double counting.
-    // last_mining_at is added lazily (not in Drizzle schema), so we use raw SQL.
-    const { pool } = await import("@workspace/db");
-    await pool.query(
-      `UPDATE gm_users SET last_mining_at = $1 WHERE telegram_id = $2`,
-      [now, user.id],
-    ).catch(() => {}); // non-critical: settler will self-correct next cycle
-
-    // Log this claim for rolling 24-hour earnings tracking (fire-and-forget).
+    // Log for rolling 24h earnings (fire-and-forget). Does NOT touch last_mining_at.
     ensureEarningsSchema().then(async () => {
       try {
         const { pool } = await import("@workspace/db");
@@ -587,8 +771,8 @@ router.post("/telegram/claim", async (req, res): Promise<void> => {
 
     res.status(200).json({ balance: row?.balance ?? amount });
   } catch (err) {
-    logger.error({ err, userId: user.id }, "Failed to persist claim");
-    res.status(500).json({ error: "Failed to persist claim" });
+    logger.error({ err, userId: user.id }, "Failed to persist credit");
+    res.status(500).json({ error: "Failed to persist credit" });
   }
 });
 
@@ -1107,6 +1291,18 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
           await editMessageText(token, chat_id, message_id,
             `💔 <b>خصم coins من المستخدم ${u?.firstName || targetId}</b>\n\nابعت العدد:`,
             { reply_markup: backBtn() });
+        } else if (action === "set_gram") {
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          adminConvStates.set(adminChatId, { step: "user_set_gram", targetId, targetName: u?.firstName || `#${targetId}` });
+          await editMessageText(token, chat_id, message_id,
+            `💰 <b>تعديل رصيد gram للمستخدم ${u?.firstName || targetId}</b>\n\nالرصيد الحالي: <code>${Number(u?.balance ?? 0).toFixed(4)}</code>\nابعت الرصيد الجديد (مثال: <code>1.5</code>):`,
+            { reply_markup: backBtn() });
+        } else if (action === "set_coins") {
+          const [u] = await db.select().from(usersTable).where(eq(usersTable.telegramId, targetId));
+          adminConvStates.set(adminChatId, { step: "user_set_coins", targetId, targetName: u?.firstName || `#${targetId}` });
+          await editMessageText(token, chat_id, message_id,
+            `🪙 <b>تعديل رصيد coin للمستخدم ${u?.firstName || targetId}</b>\n\nالرصيد الحالي: <code>${u?.coins ?? 0}</code>\nابعت الرصيد الجديد:`,
+            { reply_markup: backBtn() });
         }
 
       // ── Maintenance ────────────────────────────────────────────────────────
@@ -1239,6 +1435,27 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
             await sendMessage(token, chat_id, `✅ تم خصم ${amount} coin من المستخدم ${convState.targetName}`);
           }
 
+        } else if (convState.step === "user_set_gram") {
+          const amount = Number(text.trim());
+          if (!Number.isFinite(amount) || amount < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صالحاً (0 أو أكثر)`); }
+          else if (db) {
+            const { usersTable } = await import("@workspace/db");
+            const { eq } = await import("drizzle-orm");
+            const rounded = Math.round(amount * 1_000_000) / 1_000_000;
+            await db.update(usersTable).set({ balance: rounded }).where(eq(usersTable.telegramId, convState.targetId));
+            await sendMessage(token, chat_id, `✅ تم تعديل رصيد gram للمستخدم ${convState.targetName} إلى <b>${rounded.toFixed(4)} gram</b>`);
+          }
+
+        } else if (convState.step === "user_set_coins") {
+          const amount = parseInt(text.trim(), 10);
+          if (isNaN(amount) || amount < 0) { await sendMessage(token, chat_id, `❌ أدخل رقماً صحيحاً (0 أو أكثر)`); }
+          else if (db) {
+            const { usersTable } = await import("@workspace/db");
+            const { eq } = await import("drizzle-orm");
+            await db.update(usersTable).set({ coins: amount }).where(eq(usersTable.telegramId, convState.targetId));
+            await sendMessage(token, chat_id, `✅ تم تعديل رصيد coin للمستخدم ${convState.targetName} إلى <b>${amount.toLocaleString()}</b>`);
+          }
+
         } else if (convState.step === "add_task_title") {
           if (convState.taskType === "referral") {
             adminConvStates.set(from.id, { step: "add_task_reward", taskType: convState.taskType, title: text.trim() });
@@ -1348,7 +1565,13 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
       //   4. referred_id not already in gm_referrals — idempotency guard
       const startPayload = text.slice("/start".length).trim();
       const referralMatch = startPayload.match(/^(?:GMR)?(\d{5,})$/);
-      if (referralMatch && isNewUser) {
+      // NOTE: we intentionally do NOT require isNewUser here. Many users already
+      // exist in the DB (created while the webhook pointed at the old server),
+      // which silently voided every referral. The real safety guards are:
+      //   - no existing gm_referrals row for this user (idempotency, checked below)
+      //   - referred_by IS NULL on the user row (checked below)
+      //   - no self-referral
+      if (referralMatch) {
         const referrerId = Number(referralMatch[1]);
         if (referrerId && referrerId !== from.id) {
           const db = await getDb();
@@ -1379,12 +1602,18 @@ router.post(["/telegram/webhook", "/webhook"], async (req, res) => {
               if (referrerRows.length === 0) {
                 logger.warn({ referrerId, from: from.id }, "Referral skipped: referrer not found in DB");
               } else {
-                // Guard 4: idempotency — never credit the same referred user twice
+                // Guard 4: idempotency — never credit the same referred user twice.
+                // Checks BOTH the gm_referrals table AND referred_by on the user row.
                 const existing = await pool.query(
                   "SELECT id FROM gm_referrals WHERE referred_id=$1",
                   [from.id],
                 );
-                if (existing.rows.length === 0) {
+                const [meRow] = await db
+                  .select({ referredBy: usersTable.referredBy })
+                  .from(usersTable)
+                  .where(eq(usersTable.telegramId, from.id))
+                  .limit(1);
+                if (existing.rows.length === 0 && !meRow?.referredBy) {
                   // Insert referral record
                   await pool.query(
                     "INSERT INTO gm_referrals (referrer_id, referred_id, reward_paid) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",

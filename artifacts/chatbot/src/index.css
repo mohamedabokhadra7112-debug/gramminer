@@ -33,6 +33,10 @@
 
 :root {
   --app-height: 100dvh;
+  /* Height reserved by the fixed bottom navigation (see BottomNav.tsx).
+     Includes the nav's own min-height (~72px) + version line + safe-area inset.
+     Overlays/sheets use this to sit on top of the nav instead of behind it. */
+  --nav-height: calc(80px + env(safe-area-inset-bottom, 0px));
   --background: 240 20% 5%;
   --foreground: 0 0% 100%;
   --border: 240 10% 15%;
@@ -112,4 +116,5 @@
    Falls back to 100dvh outside Telegram (plain browser preview). */
 .app-shell {
   height: var(--app-height, 100dvh);
+  width: 100%;
 }

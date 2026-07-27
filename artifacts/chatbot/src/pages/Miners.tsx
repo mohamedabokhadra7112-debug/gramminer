@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import { X, CheckCircle2, Loader2, Clock, TrendingUp, Download } from 'lucide-react';
 import { useCoins } from '@/context/CoinsContext';
 import { useWallet } from '@/context/WalletContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { getInitData, API_BASE, telegramApiPost } from '@/lib/telegramApi';
 
 // ─── Store settings (fetched from backend, overridable by admin) ───────────────
@@ -138,6 +139,7 @@ function PackageModal({
   onClose: () => void;
   onSuccess: (coins: number) => void;
 }) {
+  const { t } = useLanguage();
   const multiplier = pkg.gram;
   const totalCoins = Math.round(multiplier * settings.coinsPerGram);
 
@@ -157,7 +159,7 @@ function PackageModal({
     if (!canAfford || status === 'loading') return;
     const initData = getInitData();
     if (!initData) {
-      setErrMsg('افتح التطبيق من تيليجرام');
+      setErrMsg(t('store_open_from_telegram'));
       setStatus('err');
       return;
     }
@@ -178,8 +180,8 @@ function PackageModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center"
-      style={{ background: 'rgba(0,0,0,0.78)' }}
+      className="fixed inset-x-0 top-0 z-40 flex items-end justify-center"
+      style={{ background: 'rgba(0,0,0,0.78)', bottom: 'var(--nav-height)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
@@ -189,7 +191,6 @@ function PackageModal({
           border: '1px solid rgba(245,166,35,0.2)',
           borderBottom: 'none',
           boxShadow: '0 -8px 40px rgba(0,0,0,0.8)',
-          paddingBottom: 'env(safe-area-inset-bottom, 16px)',
         }}
       >
         {/* Close */}
@@ -271,7 +272,7 @@ function PackageModal({
                     <div className="flex items-center gap-1 mt-0.5">
                       <TrendingUp className="w-2.5 h-2.5" style={{ color: isSelected ? '#4ade80' : 'rgba(74,222,128,0.4)' }} />
                       <span className="text-[10px] font-bold" style={{ color: isSelected ? '#4ade80' : 'rgba(74,222,128,0.4)' }}>
-                        +{dDaily} gram/يوم
+                        +{dDaily} {t('store_gram_per_day')}
                       </span>
                     </div>
                   </div>
@@ -300,19 +301,19 @@ function PackageModal({
           }}
         >
           <div>
-            <div className="text-xs font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>ستدفع</div>
+            <div className="text-xs font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>{t('store_you_pay')}</div>
             <div className="font-black text-lg leading-none" style={{ color: canAfford ? '#F5A623' : '#fbbf24' }}>
               {gram.toFixed(2)} GRAM
             </div>
           </div>
           <div className="text-right">
-            <div className="text-xs font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>رصيدك</div>
+            <div className="text-xs font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>{t('store_your_balance')}</div>
             <div
               className="font-bold text-sm"
               style={{ color: canAfford ? '#4ade80' : '#f87171' }}
             >
               {totalGram.toFixed(4)}
-              {!canAfford && <span className="text-xs ml-1 opacity-70">(غير كافٍ)</span>}
+              {!canAfford && <span className="text-xs ml-1 opacity-70">{t('store_insufficient')}</span>}
             </div>
           </div>
         </div>
@@ -320,12 +321,12 @@ function PackageModal({
         {/* Error */}
         {status === 'err' && (
           <div className="mx-4 mb-2 rounded-xl p-2.5 text-center text-sm font-bold" style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
-            ❌ {errMsg || 'حدث خطأ'}
+            ❌ {errMsg || t('store_error')}
           </div>
         )}
         {status === 'ok' && (
           <div className="mx-4 mb-2 rounded-xl p-2.5 text-center text-sm font-bold" style={{ background: 'rgba(34,197,94,0.12)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}>
-            ✅ تم الشراء! +{coins.toLocaleString()} coin
+            ✅ {t('store_purchased')} +{coins.toLocaleString()} coin
           </div>
         )}
 
@@ -353,7 +354,7 @@ function PackageModal({
             </div>
             <div className="text-left">
               <div className="text-black font-black text-base leading-tight">
-                {status === 'loading' ? 'جارٍ الشراء...' : status === 'ok' ? 'تم!' : `${gram.toFixed(2)} GRAM`}
+                {status === 'loading' ? t('store_purchasing') : status === 'ok' ? t('store_done') : `${gram.toFixed(2)} GRAM`}
               </div>
               <div className="text-black/60 font-bold text-[11px] tracking-wider">PAY WITH GRAM</div>
             </div>
@@ -366,6 +367,7 @@ function PackageModal({
 
 // ─── Main Store Page ──────────────────────────────────────────────────────────
 export default function Store() {
+  const { t, lang } = useLanguage();
   const { coins, refreshBalance } = useCoins();
   const { holdingWallet, sessionEarnings } = useWallet();
   const totalGram = holdingWallet + sessionEarnings;
@@ -411,7 +413,7 @@ export default function Store() {
         {/* Top row */}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-lg font-black text-white">🏪 المتجر</h1>
+            <h1 className="text-lg font-black text-white">{t('store_title')}</h1>
             <p className="text-[10px] text-white/40 mt-0.5">
               {settings.coinsPerGram} COIN = 1 GRAM
             </p>
@@ -437,7 +439,7 @@ export default function Store() {
         >
           <Download className="w-3.5 h-3.5 text-primary/60 flex-shrink-0" />
           <p className="text-[10px] text-white/40 leading-tight">
-            اضغط على أي باقة للإيداع المباشر عبر TON — سيُضاف الرصيد تلقائياً
+            {t('store_deposit_hint')}
           </p>
         </div>
 
@@ -462,7 +464,7 @@ export default function Store() {
         {history.length > 0 && (
           <div>
             <p className="text-[10px] font-black text-white/40 mb-2 flex items-center gap-1.5 uppercase tracking-widest">
-              <Clock className="w-3 h-3" /> آخر المشتريات
+              <Clock className="w-3 h-3" /> {t('store_recent_purchases')}
             </p>
             <div className="space-y-1.5">
               {history.map(h => (
@@ -472,7 +474,7 @@ export default function Store() {
                     <div className="text-white font-bold text-xs">
                       {h.gram_amount.toFixed(2)} gram → <span className="text-primary">{h.coins_amount.toLocaleString()} coin</span>
                     </div>
-                    <div className="text-white/30 text-[9px]">{new Date(h.created_at).toLocaleDateString('ar')}</div>
+                    <div className="text-white/30 text-[9px]">{new Date(h.created_at).toLocaleDateString(lang)}</div>
                   </div>
                   <CheckCircle2 className="w-3.5 h-3.5 text-primary/60 flex-shrink-0" />
                 </div>

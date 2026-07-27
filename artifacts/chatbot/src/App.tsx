@@ -173,7 +173,7 @@ function Router() {
 
   return (
     <div
-      className="app-shell flex flex-col w-full max-w-[430px] mx-auto relative shadow-2xl overflow-hidden"
+      className="app-shell flex flex-col w-full max-w-[640px] mx-auto relative shadow-2xl overflow-hidden"
       style={{
         backgroundImage: `url(${mineBgImg})`,
         backgroundSize: 'cover',
@@ -187,8 +187,11 @@ function Router() {
       ) : (
         <>
           <div
-            className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain relative z-10 pb-[80px] [-webkit-overflow-scrolling:touch]"
-            style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+            className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain relative z-10 [-webkit-overflow-scrolling:touch]"
+            style={{
+              paddingTop: 'env(safe-area-inset-top, 0px)',
+              paddingBottom: 'var(--nav-height)',
+            }}
           >
             <Switch>
               <Route path="/" component={Dashboard} />

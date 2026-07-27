@@ -45,7 +45,7 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
             // Address taken by another account — disconnect immediately
             tonConnectUI.disconnect();
             setSaveStatus('err');
-            setSaveMsg(data.message ?? 'هذا العنوان مرتبط بحساب آخر بالفعل');
+            setSaveMsg(data.message ?? t('wallet_address_taken'));
             return;
           }
           throw new Error(data.message ?? `HTTP ${r.status}`);
@@ -58,9 +58,9 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
         // Server unavailable — save locally anyway, will sync later
         connectWallet(addr);
         setSaveStatus('err');
-        setSaveMsg(`تعذر الحفظ على السيرفر: ${e instanceof Error ? e.message : String(e)}`);
+        setSaveMsg(`${t('wallet_save_failed')}: ${e instanceof Error ? e.message : String(e)}`);
       });
-  }, [tonWallet?.account?.address, connectWallet, tonConnectUI]);
+  }, [tonWallet?.account?.address, connectWallet, tonConnectUI, t]);
 
   const handleConnect = () => {
     setSaveStatus('idle');
@@ -88,7 +88,10 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div
+        className="fixed inset-x-0 top-0 z-40 flex items-end justify-center"
+        style={{ bottom: 'var(--nav-height)' }}
+      >
         {/* Backdrop */}
         <motion.div
           className="absolute inset-0 bg-black/70"
@@ -100,7 +103,7 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
 
         {/* Sheet */}
         <motion.div
-          className="relative w-full max-w-[430px] bg-[#0f0f1a] rounded-t-3xl p-6 pb-24 border-t border-white/10"
+          className="relative w-full max-w-[640px] bg-[#0f0f1a] rounded-t-3xl p-6 pb-8 border-t border-white/10"
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
@@ -122,7 +125,7 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
               <div className="text-success text-lg font-bold">{t('wallet_connected')}</div>
 
               {saveStatus === 'saving' && (
-                <div className="text-xs text-primary animate-pulse">⏳ جار الحفظ...</div>
+                <div className="text-xs text-primary animate-pulse">{t('wallet_saving')}</div>
               )}
               {saveStatus === 'err' && saveMsg && (
                 <div className="text-xs text-red-400 text-center px-2 bg-red-500/10 rounded-xl p-2 border border-red-500/20">
@@ -130,7 +133,7 @@ export default function WalletModal({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               {saveStatus === 'ok' && (
-                <div className="text-xs text-success">✅ تم الحفظ في السيرفر</div>
+                <div className="text-xs text-success">{t('wallet_saved')}</div>
               )}
 
               <div className="bg-black/40 rounded-xl px-6 py-2.5 border border-success/30">

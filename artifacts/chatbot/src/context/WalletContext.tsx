@@ -144,14 +144,22 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (isVerified) fetchReferrals();
   }, [isVerified, fetchReferrals]);
 
-  // Passive earnings — coin-based mining:
+  // Passive earnings — CONTINUOUS coin-based mining:
   //   daily_income (gram) = coins / 14_000   (700 coin = 1 gram, 5 % daily)
   //   per-second          = daily / 86_400
   //   0 coins → 0 mining (no tick increments balance)
   //
+  // Accrual is TIME-based and continues even while the app is closed. The
+  // server is the source of truth for lastMiningAt: on auth we fetch the
+  // server-computed accrued value (elapsed since last claim, capped at 24h),
+  // seed sessionEarnings with it, and then the 1s ticker keeps incrementing
+  // ONLY until total elapsed reaches 24h — after which mining freezes until the
+  // user claims (which resets the cycle on the server).
+  //
   // Coins are read from localStorage each tick to avoid a circular
   // context dependency (CoinsContext → WalletContext → CoinsContext).
   // CoinsContext writes per-user keys of the form `gram_coins_balance_<tgId>`.
+  const MINING_CAP_SECONDS = 86_400; // 24h cap — mining stops here until claim
   function getCoinsFromStorage(): number {
     try {
       const tgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
@@ -161,8 +169,44 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     } catch { return 0; }
   }
 
+  // Tracks elapsed accrual seconds since the last claim (seeded from server).
+  // Used to freeze the ticker once we hit the 24h cap.
+  const elapsedSecondsRef = useRef(0);
+
+  // Seed sessionEarnings from the server-authoritative accrued value whenever
+  // auth resolves. This captures earnings accrued while the app was closed.
+  useEffect(() => {
+    if (!isVerified) return;
+    const initData = getInitData();
+    if (!initData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/telegram/mining/accrued`, {
+          headers: { 'x-init-data': initData },
+        });
+        if (!res.ok) return;
+        const data = await res.json() as {
+          accrued: number;
+          elapsedSeconds: number;
+          cappedAt24h: boolean;
+        };
+        if (cancelled) return;
+        const accrued = Number(data?.accrued);
+        const elapsed = Number(data?.elapsedSeconds);
+        elapsedSecondsRef.current = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
+        setSessionEarnings(Number.isFinite(accrued) ? Math.max(0, accrued) : 0);
+      } catch { /* best-effort — ticker still runs from 0 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isVerified]);
+
+  // 1s ticker — increments sessionEarnings while accrual is below the 24h cap.
+  // Freezes once elapsed reaches MINING_CAP_SECONDS (until the user claims).
   useEffect(() => {
     const interval = setInterval(() => {
+      if (elapsedSecondsRef.current >= MINING_CAP_SECONDS) return; // capped — freeze
+      elapsedSecondsRef.current += 1;
       const coins = getCoinsFromStorage();
       if (coins <= 0) return; // 0 coins = no mining
       const perSecond = coins / 14_000 / 86_400;
@@ -178,77 +222,49 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const sessionEarningsRef = useRef(sessionEarnings);
   useEffect(() => { sessionEarningsRef.current = sessionEarnings; }, [sessionEarnings]);
 
-  // Prevent concurrent saves (auto-save + manual claim racing each other).
+  // Prevent concurrent claims racing each other.
   const isSavingRef = useRef(false);
 
   /**
-   * Core persist function — sends `amount` to the server and updates local
-   * state on success.  Falls back to localStorage if the API is unavailable
-   * so no earnings are silently discarded.
-   * Used by both manual claimEarnings and the background auto-save.
+   * Claim — settles the continuous mining accrual on the server.
+   *
+   * The server IGNORES any client-sent amount and credits its own
+   * server-computed accrued value (elapsed since last claim × per-second rate,
+   * capped at 24h), then resets last_mining_at to NOW() — restarting the cycle.
+   * On success we set sessionEarnings=0, reset the local elapsed counter, and
+   * adopt the server's authoritative balance.
    */
-  const persistEarnings = useCallback(async (amount: number): Promise<void> => {
-    // Guard: reject NaN / non-positive amounts before doing any work.
-    if (!Number.isFinite(amount) || amount <= 0 || isSavingRef.current) return;
-    isSavingRef.current = true;
-    try {
-      const data = await telegramApiPost<{ balance: number }>('/telegram/claim', { amount });
-      // The server returns the new cumulative balance.  Coerce to number and
-      // validate — a null/undefined response would produce NaN via Number().
-      const serverBalance = Number(data?.balance);
-      if (Number.isFinite(serverBalance)) {
-        setHoldingWallet(serverBalance);
-      } else {
-        // Unexpected server payload — fall back to local accumulation.
-        setHoldingWallet(getStoredBalance() + amount);
-      }
-      setSessionEarnings(0);
-    } catch {
-      // API unavailable — accumulate locally so earnings survive a refresh.
-      // Both operands are safe: getStoredBalance() → finite, amount → finite (checked above).
-      const newBalance = getStoredBalance() + amount;
-      setHoldingWallet(newBalance); // setHoldingWallet is NaN-safe
-      setSessionEarnings(0);
-    } finally {
-      isSavingRef.current = false;
-    }
-  }, [setHoldingWallet]);
-
-  /**
-   * Auto-save:
-   *   1. Every 60 s — so earnings accumulate in the DB while the app is open.
-   *   2. On visibilitychange → hidden — catches the moment the user closes the
-   *      bot or switches away, ensuring earnings are not lost even if Claim is
-   *      never pressed.
-   */
-  useEffect(() => {
-    const save = () => {
-      const amount = +sessionEarningsRef.current.toFixed(6);
-      if (amount > 0) persistEarnings(amount);
-    };
-
-    // Periodic save every 60 seconds
-    const interval = setInterval(save, 60_000);
-
-    // Immediate save when the WebApp goes to the background / is closed
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') save();
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [persistEarnings]);
-
   const claimEarnings = useCallback(() => {
-    const amount = +(poolWallet + sessionEarningsRef.current).toFixed(6);
-    if (amount <= 0) return;
+    if (isSavingRef.current) return;
+    // Nothing to claim if there are no session earnings and no pool balance.
+    const pending = +(poolWallet + sessionEarningsRef.current).toFixed(6);
+    if (!Number.isFinite(pending) || pending <= 0) return;
+
+    isSavingRef.current = true;
     setIsClaiming(true);
     setClaimError(null);
-    persistEarnings(amount).finally(() => setIsClaiming(false));
-  }, [poolWallet, persistEarnings]);
+
+    // Sending `amount` is harmless (server ignores it) — kept for backwards compat.
+    telegramApiPost<{ balance: number; claimed?: number }>('/telegram/claim', {
+      amount: pending,
+    })
+      .then((data) => {
+        const serverBalance = Number(data?.balance);
+        if (Number.isFinite(serverBalance)) {
+          setHoldingWallet(serverBalance); // setHoldingWallet is NaN-safe
+        }
+        // Reset the accrual cycle locally to mirror the server reset.
+        setSessionEarnings(0);
+        elapsedSecondsRef.current = 0;
+      })
+      .catch(() => {
+        setClaimError('Failed to claim. Please try again.');
+      })
+      .finally(() => {
+        isSavingRef.current = false;
+        setIsClaiming(false);
+      });
+  }, [poolWallet, setHoldingWallet]);
 
   const addReferral = () => {
     setReferralCount(prev => prev + 1);
@@ -257,10 +273,29 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const refreshReferrals = () => { fetchReferrals(); };
 
-  /** Add gram earnings from miners — alias for persistEarnings so Miners.tsx can call it directly. */
-  const addClickEarning = useCallback((amount: number) => {
-    persistEarnings(amount);
-  }, [persistEarnings]);
+  /**
+   * Add gram earnings from OTHER sources (e.g. miner clicks in Miners.tsx).
+   * Credits the server via the lightweight /telegram/credit route which does
+   * NOT touch last_mining_at (so it never interferes with mining accrual).
+   * Falls back to local accumulation if the API is unavailable so earnings
+   * survive a refresh. Amount must be finite, > 0, and <= 100 (server-enforced).
+   */
+  const addClickEarning = useCallback(async (amount: number) => {
+    const amt = Math.round(Number(amount) * 1_000_000) / 1_000_000;
+    if (!Number.isFinite(amt) || amt <= 0 || amt > 100) return;
+    try {
+      const data = await telegramApiPost<{ balance: number }>('/telegram/credit', { amount: amt });
+      const serverBalance = Number(data?.balance);
+      if (Number.isFinite(serverBalance)) {
+        setHoldingWallet(serverBalance);
+      } else {
+        setHoldingWallet(getStoredBalance() + amt);
+      }
+    } catch {
+      // API unavailable — accumulate locally so earnings survive a refresh.
+      setHoldingWallet(getStoredBalance() + amt); // setHoldingWallet is NaN-safe
+    }
+  }, [setHoldingWallet]);
 
   return (
     <WalletContext.Provider value={{

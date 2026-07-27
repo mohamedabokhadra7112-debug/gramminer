@@ -46,13 +46,13 @@ interface ActiveTournament {
 }
 
 /** Countdown hook — returns formatted string, updates every second */
-function useCountdown(endsAt: string | undefined) {
+function useCountdown(endsAt: string | undefined, endedLabel: string) {
   const [label, setLabel] = useState('');
   useEffect(() => {
     if (!endsAt) return;
     const tick = () => {
       const diff = new Date(endsAt).getTime() - Date.now();
-      if (diff <= 0) { setLabel('انتهت'); return; }
+      if (diff <= 0) { setLabel(endedLabel); return; }
       const h = Math.floor(diff / 3_600_000);
       const m = Math.floor((diff % 3_600_000) / 60_000);
       const s = Math.floor((diff % 60_000) / 1_000);
@@ -61,7 +61,7 @@ function useCountdown(endsAt: string | undefined) {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [endsAt]);
+  }, [endsAt, endedLabel]);
   return label;
 }
 
@@ -97,7 +97,8 @@ function LeaderboardModal({
   loading: boolean;
   tournament: ActiveTournament | null;
 }) {
-  const countdown = useCountdown(tournament?.endsAt);
+  const { t } = useLanguage();
+  const countdown = useCountdown(tournament?.endsAt, t('friends_ended'));
 
   const rankIcon = (r: number) => {
     if (r === 1) return '🥇';
@@ -113,7 +114,7 @@ function LeaderboardModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    <div className="fixed inset-x-0 top-0 z-40 flex flex-col justify-end" style={{ bottom: 'var(--nav-height)' }}>
       {/* Overlay */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
@@ -133,10 +134,10 @@ function LeaderboardModal({
             <img src={LEADERBOARD_ICON} alt="" className="w-7 h-7 object-contain" />
             <div>
               <h2 className="text-xl font-black text-white leading-tight">
-                {tournament ? tournament.title : 'المتصدرون'}
+                {tournament ? tournament.title : t('friends_leaderboard')}
               </h2>
               {tournament && (
-                <p className="text-[10px] text-white/40 font-medium">مسابقة كوينات • ينتهي بعد {countdown}</p>
+                <p className="text-[10px] text-white/40 font-medium">{t('friends_coin_contest')} • {t('friends_ends_in')} {countdown}</p>
               )}
             </div>
           </div>
@@ -150,7 +151,7 @@ function LeaderboardModal({
           <div className="mx-5 mb-3 rounded-xl border border-primary/25 p-3" style={{ backgroundColor: 'rgba(245,166,35,0.06)' }}>
             <div className="flex items-center gap-2 mb-2">
               <Trophy className="w-4 h-4 text-primary flex-shrink-0" />
-              <span className="text-xs font-black text-primary">جوائز المسابقة</span>
+              <span className="text-xs font-black text-primary">{t('friends_contest_prizes')}</span>
               <div className="ml-auto flex items-center gap-1 text-[10px] text-white/50">
                 <Clock className="w-3 h-3" />
                 {countdown}
@@ -167,14 +168,14 @@ function LeaderboardModal({
                 );
               })}
               {tournament.prizes.filter(p => (p.coins ?? p.gram) > 0).length > 8 && (
-                <span className="text-[10px] text-white/40">+{tournament.prizes.filter(p => (p.coins ?? p.gram) > 0).length - 8} مراكز أخرى</span>
+                <span className="text-[10px] text-white/40">+{tournament.prizes.filter(p => (p.coins ?? p.gram) > 0).length - 8} {t('friends_more_ranks')}</span>
               )}
             </div>
           </div>
         )}
 
         {!tournament && (
-          <p className="text-xs text-white/40 px-5 pb-3 font-medium">أفضل 20 مستخدم بعدد الـ coin الأعلى</p>
+          <p className="text-xs text-white/40 px-5 pb-3 font-medium">{t('friends_top20')}</p>
         )}
 
         {/* List */}
@@ -186,7 +187,7 @@ function LeaderboardModal({
           ) : leaderboard.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-white/40">
               <img src={LEADERBOARD_ICON} alt="" className="w-14 h-14 object-contain opacity-30 mb-3" />
-              <p className="text-sm font-semibold">لا توجد بيانات بعد</p>
+              <p className="text-sm font-semibold">{t('friends_no_data')}</p>
             </div>
           ) : (
             leaderboard.map((u) => {
@@ -388,7 +389,7 @@ export default function Friends() {
         <div className="relative z-10 mb-4">
           <h3 className="text-sm font-black text-white/80 mb-3 flex items-center gap-2">
             <Star className="w-4 h-4 text-primary" />
-            مراحل المكافآت
+            {t('friends_milestones')}
           </h3>
           <div className="space-y-2">
             {milestones.filter(m => m.isEnabled).map(m => {
@@ -411,7 +412,7 @@ export default function Friends() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-bold text-white">{m.inviteCount} دعوة</span>
+                      <span className="text-sm font-bold text-white">{m.inviteCount} {t('friends_invites_word')}</span>
                       <span className={`text-xs font-black ${m.credited ? 'text-success' : m.reached ? 'text-primary' : 'text-white/60'}`}>
                         +{m.rewardCoins} coin
                       </span>
@@ -424,10 +425,10 @@ export default function Friends() {
                     </div>
                     <div className="text-[10px] text-white/50 mt-0.5">
                       {m.credited
-                        ? '✅ تم استلام المكافأة'
+                        ? t('friends_reward_claimed')
                         : m.reached
-                        ? '🎉 وصلت! جارٍ الإضافة...'
-                        : `${displayCount}/${m.inviteCount} مدعو`}
+                        ? t('friends_reward_pending')
+                        : `${displayCount}/${m.inviteCount} ${t('friends_invited_word')}`}
                     </div>
                   </div>
                 </div>
@@ -471,7 +472,7 @@ export default function Friends() {
               className="w-8 h-8 object-contain"
             />
             <span className="text-[9px] text-black/70 font-bold leading-tight text-center px-1">
-              المتصدرون
+              {t('friends_leaderboard')}
             </span>
           </button>
         </div>

@@ -62,11 +62,21 @@ export function useAdsGram(): UseAdsGramResult {
   const controllerRef = useRef<AdController | null>(null);
   const configured = Boolean(ADSGRAM_BLOCK_ID);
 
-  // Pre-load SDK on mount for faster first show
+  // Per Adsgram docs: load the SDK and init the controller ONCE, then reuse
+  // the same controller for every show() call.
   useEffect(() => {
     if (!configured) return;
-    loadSdkScript().catch(() => {}); // best-effort pre-load
+    let cancelled = false;
+    loadSdkScript()
+      .then(() => {
+        if (cancelled || controllerRef.current || !window.Adsgram) return;
+        try {
+          controllerRef.current = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
+        } catch { /* init may fail outside Telegram env — showAd will retry */ }
+      })
+      .catch(() => {}); // best-effort pre-load
     return () => {
+      cancelled = true;
       controllerRef.current?.destroy();
       controllerRef.current = null;
     };
@@ -77,25 +87,29 @@ export function useAdsGram(): UseAdsGramResult {
       throw new Error('VITE_ADSGRAM_BLOCK_ID is not set');
     }
 
-    await loadSdkScript();
-
-    // Small delay to ensure SDK is initialized after script load
-    await new Promise(r => setTimeout(r, 100));
-
-    if (!window.Adsgram) {
-      throw new Error('AdsGram SDK failed to initialize');
+    // Ensure SDK + controller exist (retry path if pre-init failed)
+    if (!controllerRef.current) {
+      await loadSdkScript();
+      await new Promise(r => setTimeout(r, 100));
+      if (!window.Adsgram) throw new Error('AdsGram SDK failed to initialize');
+      controllerRef.current = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
     }
 
-    const controller = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
-    controllerRef.current = controller;
-
-    const result = await controller.show();
-
-    if (!result.done) {
-      throw new Error(result.description ?? 'Ad was skipped or closed early');
+    // Per docs: show() resolves when the user watches till the end,
+    // rejects on skip/error with a ShowPromiseResult.
+    try {
+      const result = await controllerRef.current.show();
+      if (!result.done) {
+        throw new Error(result.description ?? 'Ad was skipped or closed early');
+      }
+      return { done: true };
+    } catch (e: unknown) {
+      // Adsgram rejects with a ShowPromiseResult object, not an Error
+      if (e && typeof e === 'object' && 'description' in e) {
+        throw new Error(String((e as { description?: string }).description ?? 'Ad error'));
+      }
+      throw e;
     }
-
-    return { done: true };
   }, [configured]);
 
   return { showAd, configured };

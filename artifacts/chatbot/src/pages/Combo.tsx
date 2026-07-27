@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Sparkles, CheckCircle2, XCircle, Loader2, Trophy, Clock } from 'lucide-react';
 import { useCoins } from '@/context/CoinsContext';
+import { useLanguage } from '@/context/LanguageContext';
 
-const API = import.meta.env.VITE_API_URL ?? '';
+import { API_BASE } from '@/lib/telegramApi';
+
+const API = API_BASE;
 function getInitData(): string { return window.Telegram?.WebApp?.initData ?? ''; }
 
 // ─── Item definitions ────────────────────────────────────────────────────────
@@ -51,6 +54,7 @@ type ComboResult = { ok: boolean; success: boolean; reward: number };
 
 export default function Combo() {
   const { addCoins } = useCoins();
+  const { t } = useLanguage();
 
   const [loading, setLoading] = useState(true);
   const [attemptedToday, setAttempted] = useState(false);
@@ -114,9 +118,9 @@ export default function Combo() {
         if (data.error === 'already_attempted') {
           setAttempted(true);
           setAttemptsUsed(MAX_DAILY_ATTEMPTS);
-          setError('لقد استخدمت محاولتك اليوم بالفعل');
+          setError(t('combo_already_attempted'));
         } else {
-          setError(data.error || 'حدث خطأ');
+          setError(data.error || t('combo_error'));
         }
         return;
       }
@@ -126,7 +130,7 @@ export default function Combo() {
       if (data.success && data.reward > 0) addCoins(data.reward);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setError(msg || 'تعذر الإرسال');
+      setError(msg || t('combo_submit_failed'));
     } finally {
       setSubmitting(false);
     }
@@ -148,8 +152,8 @@ export default function Combo() {
             <Sparkles className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-lg font-black text-white">الكومبو اليومي</h1>
-            <p className="text-[10px] text-muted-foreground">اختر 3 عناصر صح واكسب coins</p>
+            <h1 className="text-lg font-black text-white">{t('combo_title')}</h1>
+            <p className="text-[10px] text-muted-foreground">{t('combo_subtitle')}</p>
           </div>
         </div>
         {/* Attempts counter */}
@@ -165,7 +169,7 @@ export default function Combo() {
             ))}
           </div>
           <span className="text-[10px] text-muted-foreground mt-0.5">
-            {attemptsRemaining}/{MAX_DAILY_ATTEMPTS} متبقية
+            {attemptsRemaining}/{MAX_DAILY_ATTEMPTS} {t('combo_remaining')}
           </span>
         </div>
       </div>
@@ -180,15 +184,15 @@ export default function Combo() {
           <>
             {/* Attempts info bar */}
             <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">المحاولات اليوم</span>
+              <span className="text-xs text-muted-foreground">{t('combo_attempts_today')}</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-white">{attemptsUsed} / {MAX_DAILY_ATTEMPTS} مستخدمة</span>
+                <span className="text-xs font-bold text-white">{attemptsUsed} / {MAX_DAILY_ATTEMPTS} {t('combo_used')}</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                   attemptsRemaining > 0
                     ? 'bg-primary/20 text-primary'
                     : 'bg-destructive/20 text-destructive'
                 }`}>
-                  {attemptsRemaining} متبقية
+                  {attemptsRemaining} {t('combo_remaining')}
                 </span>
               </div>
             </div>
@@ -203,7 +207,7 @@ export default function Combo() {
                 {showSuccess ? (
                   <>
                     <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-                    <p className="text-white font-black text-lg">🎉 صح! اخترت الكومبو الصح</p>
+                    <p className="text-white font-black text-lg">{t('combo_win')}</p>
                     <div className="flex items-center gap-2 bg-white/10 rounded-xl px-4 py-2">
                       <Trophy className="w-4 h-4 text-amber-400" />
                       <span className="text-amber-400 font-black text-base">+{showReward} coin</span>
@@ -212,7 +216,7 @@ export default function Combo() {
                 ) : (
                   <>
                     <XCircle className="w-10 h-10 text-destructive" />
-                    <p className="text-white font-black text-lg">❌ غلط! حظ أوفر بكره</p>
+                    <p className="text-white font-black text-lg">{t('combo_lose')}</p>
                   </>
                 )}
               </div>
@@ -222,7 +226,7 @@ export default function Combo() {
             {isDone && showSuccess === null && (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4 flex items-center gap-3">
                 <Clock className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                <p className="text-muted-foreground text-sm">استخدمت محاولتك اليوم. تعالى تاني بكره!</p>
+                <p className="text-muted-foreground text-sm">{t('combo_done_today')}</p>
               </div>
             )}
 
@@ -230,9 +234,9 @@ export default function Combo() {
             {!isDone && !result && (
               <div className="bg-primary/5 border border-primary/20 rounded-2xl p-3 text-center">
                 <p className="text-primary text-sm font-bold">
-                  اختر <span className="text-white font-black">3 عناصر</span> من الـ 5 — لو اخترت الصح هتاخد من 1 لـ 10 coins
+                  {t('combo_instructions_pre')} <span className="text-white font-black">{t('combo_instructions_items')}</span> {t('combo_instructions_post')}
                 </p>
-                <p className="text-muted-foreground text-xs mt-1">محاولة واحدة كل 24 ساعة</p>
+                <p className="text-muted-foreground text-xs mt-1">{t('combo_one_per_day')}</p>
               </div>
             )}
 
@@ -283,9 +287,9 @@ export default function Combo() {
                            disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
               >
                 {submitting ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> جار التحقق...</>
+                  <><Loader2 className="w-4 h-4 animate-spin" /> {t('combo_checking')}</>
                 ) : (
-                  <><Sparkles className="w-4 h-4" /> تحقق من الكومبو</>
+                  <><Sparkles className="w-4 h-4" /> {t('combo_check')}</>
                 )}
               </button>
             )}
