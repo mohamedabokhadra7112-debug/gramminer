@@ -1,0 +1,85 @@
+This is NOT a request to add new features.
+
+Everything listed below already exists in the project but is currently broken.
+
+Your task is to DEBUG and REPAIR the existing implementation.
+
+Do NOT rewrite the project.
+Do NOT replace existing features with placeholders.
+Do NOT generate a plan.
+Do NOT ask for confirmation.
+Do NOT stop after writing code.
+Do NOT waste time creating unnecessary tests before fixing the project.
+
+For every issue you must:
+
+1. Find the ROOT CAUSE.
+2. Repair the backend.
+3. Repair the database.
+4. Repair the API.
+5. Repair the frontend if necessary.
+6. Run the application.
+7. Verify that the feature works in the running project.
+8. If another error appears, continue debugging automatically until the feature works correctly.
+
+Current broken features:
+
+1. Mining
+Mining must continue using server time even when Telegram or the Mini App is closed. After Claim, automatically start a new 24-hour mining cycle. Never depend on frontend timers.
+
+2. Referral
+Invited users are not counted. Repair referral counting, rewards, balances, leaderboard updates and permanent database storage.
+
+3. Admin Panel
+All Admin functions are broken.
+
+The frontend receives this runtime error:
+
+Unexpected token '<', "<!DOCTYPE..." is not valid JSON
+
+Find the real reason why the API returns HTML instead of JSON. Repair every Admin API endpoint and make every Admin function fully operational.
+
+4. Swap
+The swap system is broken. Repair validation, balance updates, transaction history and database operations until swapping works correctly.
+
+5. Advertisements
+Advertisements are broken and show "ad_none_available". Repair ad loading, reward distribution, daily limits, database updates and Admin advertisement management.
+
+6. Combo
+The Combo system is broken. Repair daily combo generation, answer validation, rewards, daily reset and database persistence.
+
+7. Localization
+The application displays translation keys such as:
+
+tasks_header
+admin_dashboard
+nav_combo
+tasks_load_failed
+
+Repair the localization/i18n system so every key displays the correct translated text.
+
+IMPORTANT:
+
+The attached screenshots are from the current running application after the latest deployment.
+
+Treat them as real runtime errors.
+
+Use the screenshots to identify the root cause.
+
+Do NOT ignore them.
+
+Do NOT apply temporary workarounds.
+
+Repair the existing implementation until the screenshots no longer show these errors.
+
+Do NOT mark this task as complete until:
+
+- Mining works.
+- Referrals work.
+- Admin works.
+- Swap works.
+- Ads work.
+- Combo works.
+- Localization works.
+
+Run the project after every fix, verify every feature manually, and continue debugging automatically until the application is fully functional.

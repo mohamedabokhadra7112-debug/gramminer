@@ -1294,7 +1294,7 @@ function TournamentSection() {
 
       {/* ── Active tournaments ── */}
       {loading ? (
-        <div className="text-muted-foreground text-sm">{t('admin_loading')}</div>
+        <div className="text-muted-foreground text-sm">{tr('admin_loading')}</div>
       ) : active.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-black text-success flex items-center gap-1.5">
@@ -1368,6 +1368,8 @@ function TournamentSection() {
 
 // ─── Coin Tournament Section ───────────────────────────────────────────────
 // Default prize structure (editable in UI)
+const COIN_TRN_DEFAULT_TITLE = 'GramMiner Coin Tournament';
+
 const DEFAULT_COIN_PRIZES: Record<number, string> = {
   1: '3500', 2: '2500', 3: '2000',
   4: '1000', 5: '1000', 6: '1000',
@@ -1470,7 +1472,7 @@ function CoinTournamentSection() {
     <div className="space-y-4">
       {/* ── Active tournament card ── */}
       {loading ? (
-        <div className="text-muted-foreground text-sm">{t('admin_loading')}</div>
+        <div className="text-muted-foreground text-sm">{tr('admin_loading')}</div>
       ) : hasActive ? (
         <div className="space-y-2">
           {active.map(t => (
